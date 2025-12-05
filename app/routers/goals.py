@@ -57,3 +57,17 @@ def update_goal(
     db.commit()
     db.refresh(db_goal)
     return db_goal
+
+@router.delete("/{goal_id}", status_code=204)
+def delete_goal(
+    goal_id: int,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user_id)
+):
+    db_goal = db.query(Goal).filter(Goal.id == goal_id, Goal.user_id == user_id).first()
+    if not db_goal:
+        raise HTTPException(status_code=404, detail="Goal not found")
+    
+    db.delete(db_goal)
+    db.commit()
+    return None

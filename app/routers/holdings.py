@@ -5,7 +5,7 @@ from app.database import get_db
 from app.dependencies import get_current_user_id
 from app.services.holdings_service import HoldingsService
 from app.services.price_service import PriceService
-from app.schemas import Investment, InvestmentCreate, PlatformCash
+from app.schemas import Investment, InvestmentCreate, InvestmentUpdate, PlatformCash, PlatformCashUpdate
 
 router = APIRouter(
     prefix="/holdings",
@@ -28,6 +28,22 @@ def add_investment(
 ):
     service = HoldingsService(db, user_id)
     return service.add_investment(investment.platform, investment)
+
+@router.put("/{investment_id}", response_model=Investment)
+def update_investment(
+    investment_id: int,
+    updates: InvestmentUpdate,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user_id)
+):
+    service = HoldingsService(db, user_id)
+    try:
+        updated = service.update_investment(investment_id, updates.dict(exclude_unset=True))
+        if not updated:
+            raise HTTPException(status_code=404, detail="Investment not found")
+        return updated
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{investment_id}")
 def delete_investment(
@@ -55,12 +71,40 @@ def get_platform_cash(
 @router.post("/cash/{platform}", response_model=PlatformCash)
 def update_platform_cash(
     platform: str,
-    amount: float,
+    cash_data: PlatformCashUpdate,
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user_id)
 ):
     service = HoldingsService(db, user_id)
-    return service.update_platform_cash(platform, amount)
+    return service.update_platform_cash(platform, cash_data.cash_balance)
+
+@router.post("/platform/rename")
+def rename_platform(
+    old_name: str,
+    new_name: str,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user_id)
+):
+    service = HoldingsService(db, user_id)
+    return service.rename_platform(old_name, new_name)
+
+@router.post("/platform/color")
+def update_platform_color(
+    platform: str,
+    color: str,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user_id)
+):
+    service = HoldingsService(db, user_id)
+    return service.update_platform_color(platform, color)
+
+@router.get("/platform/colors")
+def get_platform_colors(
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user_id)
+):
+    service = HoldingsService(db, user_id)
+    return service.get_platform_colors()
 
 @router.post("/refresh-prices")
 def refresh_prices(

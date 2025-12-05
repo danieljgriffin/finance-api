@@ -66,10 +66,13 @@ class NetWorthService:
             # Let's try to make a best effort ISO date string for standard parsing
             month_map = {
                 'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
-                'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+                'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12,
+                '31st Dec': 13 # Treat as month 13 for sorting purposes
             }
-            # Handle "1st Jan" vs "Jan"
+            # Handle "1st Jan" vs "Jan" vs "31st Dec"
             month_str = entry.month.replace("1st ", "")
+            # If it was "31st Dec", the replace "1st " did nothing, so it remains "31st Dec".
+            # If it was "1st Dec", it became "Dec".
             month_num = month_map.get(month_str, 1)
             
             # Construct a date string YYYY-MM-DD

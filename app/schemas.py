@@ -15,6 +15,14 @@ class InvestmentBase(BaseModel):
 class InvestmentCreate(InvestmentBase):
     pass
 
+class InvestmentUpdate(BaseModel):
+    name: Optional[str] = None
+    symbol: Optional[str] = None
+    holdings: Optional[float] = None
+    amount_spent: Optional[float] = None
+    average_buy_price: Optional[float] = None
+    current_price: Optional[float] = None
+
 class Investment(InvestmentBase):
     id: int
     last_updated: Optional[datetime] = None
@@ -27,6 +35,9 @@ class Investment(InvestmentBase):
 class PlatformCashBase(BaseModel):
     platform: str
     cash_balance: float = 0.0
+
+class PlatformCashUpdate(BaseModel):
+    cash_balance: float
 
 class PlatformCash(PlatformCashBase):
     last_updated: Optional[datetime] = None

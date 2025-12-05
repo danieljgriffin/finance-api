@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from app.models import Investment, PlatformCash
+from app.models import Investment, PlatformCash, User
 from app.schemas import InvestmentCreate
 from datetime import datetime
 from typing import List, Dict, Optional
@@ -142,3 +142,85 @@ class HoldingsService:
         
         self.db.delete(investment)
         self.db.commit()
+
+    def rename_platform(self, old_name: str, new_name: str):
+        """Rename a platform across investments, cash entries, and preferences"""
+        # Updates investments
+        self.db.query(Investment).filter(
+            Investment.user_id == self.user_id,
+            Investment.platform == old_name
+        ).update({Investment.platform: new_name}, synchronize_session=False)
+
+        # Update cash entries
+        self.db.query(PlatformCash).filter(
+            PlatformCash.user_id == self.user_id,
+            PlatformCash.platform == old_name
+        ).update({PlatformCash.platform: new_name}, synchronize_session=False)
+
+        # Update preferences if color exists
+        user = self.db.query(User).filter(User.id == self.user_id).first()
+        if user:
+            prefs = user.preferences
+            if isinstance(prefs, str):
+                try:
+                    import json
+                    prefs = json.loads(prefs)
+                except:
+                    prefs = {}
+            elif not prefs:
+                prefs = {}
+            else:
+                 # Ensure it's a dict copy if it's already a dict (SQLAlchemy MutableDict)
+                 prefs = dict(prefs)
+
+            colors = prefs.get('platform_colors', {})
+            if old_name in colors:
+                colors[new_name] = colors.pop(old_name)
+                prefs['platform_colors'] = colors
+                user.preferences = prefs
+
+        self.db.commit()
+        return {"status": "success", "old_name": old_name, "new_name": new_name}
+
+    def update_platform_color(self, platform: str, color: str):
+        """Update the custom color for a platform"""
+        user = self.db.query(User).filter(User.id == self.user_id).first()
+        if not user:
+            raise ValueError("User not found")
+        
+        prefs = user.preferences
+        if isinstance(prefs, str):
+            try:
+                import json
+                prefs = json.loads(prefs)
+            except:
+                prefs = {}
+        elif not prefs:
+            prefs = {}
+        else:
+            prefs = dict(prefs)
+            
+        colors = prefs.get('platform_colors', {})
+        colors[platform] = color
+        prefs['platform_colors'] = colors
+        
+        user.preferences = prefs
+        self.db.commit()
+        return {"status": "success", "platform": platform, "color": color}
+    
+    def get_platform_colors(self):
+        """Get all custom platform colors"""
+        user = self.db.query(User).filter(User.id == self.user_id).first()
+        
+        prefs = user.preferences if user else {}
+        if isinstance(prefs, str):
+            try:
+                import json
+                prefs = json.loads(prefs)
+            except:
+                prefs = {}
+        
+        if not prefs:
+            return {}
+            
+        return prefs.get('platform_colors', {})

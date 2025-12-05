@@ -11,6 +11,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    preferences = Column(JSON, default={})
 
     investments = relationship("Investment", back_populates="user")
     platform_cash = relationship("PlatformCash", back_populates="user")
