@@ -1,8 +1,8 @@
 from sqlalchemy.orm import Session
-from app.models import NetworthEntry
+from app.models import NetworthEntry, HistoricalNetWorth
 from app.services.holdings_service import HoldingsService
-from datetime import datetime
-from typing import Dict, Any, List
+from datetime import datetime, timedelta
+from typing import Dict, Any, List, Optional
 import json
 
 class NetWorthService:
@@ -44,18 +44,47 @@ class NetWorthService:
         platform_totals = self.calculate_platform_totals()
         return sum(platform_totals.values())
 
-    def get_networth_history(self, year: int) -> Dict[str, Any]:
-        """Get networth data for a specific year"""
-        entries = self.db.query(NetworthEntry).filter(
-            NetworthEntry.user_id == self.user_id,
-            NetworthEntry.year == year
-        ).all()
+    def get_networth_history(self, year: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Get networth data. If year is provided, filter by year. Else return all."""
+        query = self.db.query(NetworthEntry).filter(
+            NetworthEntry.user_id == self.user_id
+        )
         
-        data = {}
+        if year:
+            query = query.filter(NetworthEntry.year == year)
+            
+        entries = query.all()
+        
+        # Sort by month if possible, but month is a string name "Jan", "Feb" etc in DB? 
+        # Ideally we convert to date. Assuming "1st Jan" format based on other snippets?
+        # Let's clean this up.
+        
+        result = []
         for entry in entries:
-            data[entry.month] = entry.get_platform_data()
+            # parsing "1st Jan" or just "Jan"
+            # For chart we likely want a comparable date string
+            # Let's try to make a best effort ISO date string for standard parsing
+            month_map = {
+                'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+                'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+            }
+            # Handle "1st Jan" vs "Jan"
+            month_str = entry.month.replace("1st ", "")
+            month_num = month_map.get(month_str, 1)
+            
+            # Construct a date string YYYY-MM-DD
+            date_str = f"{year or entry.year}-{month_num:02d}-01"
+            
+            result.append({
+                "date": date_str,
+                "value": entry.total_networth,
+                "platform_breakdown": entry.get_platform_data()
+            })
+            
+        # Sort by date
+        result.sort(key=lambda x: x['date'])
         
-        return data
+        return result
 
     def save_networth_snapshot(self, year: int, month: str):
         """Take a snapshot of current net worth and save it"""
@@ -203,3 +232,33 @@ class NetWorthService:
             })
             
         return result
+
+    def save_intraday_snapshot(self):
+        """Save a high-frequency snapshot of the current net worth"""
+        platform_totals = self.calculate_platform_totals()
+        total_networth = sum(platform_totals.values())
+        
+        entry = HistoricalNetWorth(
+            user_id=self.user_id,
+            timestamp=datetime.utcnow(),
+            net_worth=total_networth,
+            platform_breakdown=platform_totals
+        )
+        self.db.add(entry)
+        self.db.commit()
+        return entry
+
+    def get_intraday_history(self, hours: int) -> List[Dict[str, Any]]:
+        """Get granular history for the last N hours"""
+        start_time = datetime.utcnow() - timedelta(hours=hours)
+        
+        entries = self.db.query(HistoricalNetWorth).filter(
+            HistoricalNetWorth.user_id == self.user_id,
+            HistoricalNetWorth.timestamp >= start_time
+        ).order_by(HistoricalNetWorth.timestamp.asc()).all()
+        
+        return [{
+            "date": entry.timestamp.isoformat(),
+            "value": entry.net_worth,
+            "platform_breakdown": entry.platform_breakdown
+        } for entry in entries]

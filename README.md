@@ -51,3 +51,11 @@ Backend API for the Personal Finance Tracker, built with FastAPI and SQLAlchemy.
 3.  Set the **Build Command**: `pip install -r requirements.txt`
 4.  Set the **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 5.  Add the `DATABASE_URL` environment variable.
+
+## Git Setup
+
+To connect this to GitHub:
+```bash
+git remote add origin git@github.com:<YOUR_USERNAME>/finance-api.git
+git push -u origin main
+```
