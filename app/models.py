@@ -15,14 +15,14 @@ class User(Base):
 
     investments = relationship("Investment", back_populates="user")
     platform_cash = relationship("PlatformCash", back_populates="user")
-    networth_entries = relationship("NetworthEntry", back_populates="user")
+    monthly_financial_records = relationship("MonthlyFinancialRecord", back_populates="user")
     expenses = relationship("Expense", back_populates="user")
     monthly_commitments = relationship("MonthlyCommitment", back_populates="user")
     income_data = relationship("IncomeData", back_populates="user")
     monthly_breakdown = relationship("MonthlyBreakdown", back_populates="user")
     monthly_investments = relationship("MonthlyInvestment", back_populates="user")
     goals = relationship("Goal", back_populates="user")
-    historical_net_worth = relationship("HistoricalNetWorth", back_populates="user")
+    net_worth_snapshots = relationship("NetWorthSnapshot", back_populates="user")
 
 class Investment(Base):
     __tablename__ = 'investments'
@@ -75,29 +75,41 @@ class PlatformCash(Base):
             'last_updated': self.last_updated.isoformat() if self.last_updated else None
         }
 
-class NetworthEntry(Base):
-    __tablename__ = 'networth_entries'
+class MonthlyFinancialRecord(Base):
+    """
+    Replaces "NetworthEntry". 
+    Represents the closed books or summary for a specific month.
+    """
+    __tablename__ = 'monthly_financial_records'
     
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    year = Column(Integer, nullable=False)
-    month = Column(String(20), nullable=False)
-    platform_data = Column(Text)  # JSON string of platform allocations
-    total_networth = Column(Float, default=0.0)
+    period_date = Column(Date, nullable=False) # First day of the month, e.g., 2024-01-01
+    
+    net_worth = Column(Float, default=0.0)
+    total_income = Column(Float, default=0.0)
+    total_expenses = Column(Float, default=0.0)
+    total_invested = Column(Float, default=0.0)
+    
+    details = Column(JSON, default={}) # Flexible breakdown
     created_at = Column(DateTime, default=datetime.utcnow)
     
-    user = relationship("User", back_populates="networth_entries")
+    user = relationship("User", back_populates="monthly_financial_records")
 
-    # Unique constraint for year+month combination per user
-    __table_args__ = (UniqueConstraint('user_id', 'year', 'month', name='unique_user_year_month'),)
+    # Unique constraint for period per user
+    __table_args__ = (UniqueConstraint('user_id', 'period_date', name='unique_user_period_record'),)
     
-    def get_platform_data(self):
-        if self.platform_data:
-            return json.loads(self.platform_data)
-        return {}
-    
-    def set_platform_data(self, data):
-        self.platform_data = json.dumps(data)
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'period_date': self.period_date.isoformat() if self.period_date else None,
+            'net_worth': self.net_worth,
+            'total_income': self.total_income,
+            'total_expenses': self.total_expenses,
+            'total_invested': self.total_invested,
+            'details': self.details,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
 
 class Expense(Base):
     __tablename__ = 'expenses'
@@ -235,23 +247,29 @@ class Goal(Base):
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
 
-class HistoricalNetWorth(Base):
-    __tablename__ = 'historical_net_worth'
+class NetWorthSnapshot(Base):
+    """
+    Replaces "HistoricalNetWorth" and "DailyHistoricalNetWorth".
+    Stores point-in-time snapshots of total net worth and asset breakdown.
+    """
+    __tablename__ = 'net_worth_snapshots'
     
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    timestamp = Column(DateTime, nullable=False)
-    net_worth = Column(Float, nullable=False)
-    platform_breakdown = Column(JSON, nullable=False)
+    timestamp = Column(DateTime, nullable=False, index=True)
+    total_amount = Column(Float, nullable=False)
+    assets_breakdown = Column(JSON, nullable=False, default={}) # {"Vanguard": 1000, "Cash": 500}
+    currency = Column(String(3), default='GBP')
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    user = relationship("User", back_populates="historical_net_worth")
+    user = relationship("User", back_populates="net_worth_snapshots")
     
     def to_dict(self):
         return {
             'id': self.id,
             'timestamp': self.timestamp.isoformat() if self.timestamp else None,
-            'net_worth': self.net_worth,
-            'platform_breakdown': self.platform_breakdown,
+            'total_amount': self.total_amount,
+            'assets_breakdown': self.assets_breakdown,
+            'currency': self.currency,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }

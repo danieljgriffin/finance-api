@@ -1,0 +1,17 @@
+Starting T212 Sync at 2025-12-18 13:45:35.488485
+USD to GBP Rate: 0.7451300027927026
+Item: NVDA_US_EQ | Cur: '' | AvgPrice: 113.35224554 | Raw: {"ticker": "NVDA_US_EQ", "quantity": 10.25140697, "averagePrice": 113.35224554, "currentPrice": 174.25, "ppl": 438.89, "fxPpl": -26.11, "initialFillDate": "2024-12-20T16:30:04.000+02:00", "frontend": "WEB", "maxBuy": 74226.74859303, "maxSell": null, "pieQuantity": 0}
+  -> Inferred Currency: 'USD'
+  -> Profit-Based Calc: (Val 1331.03 - PPL 438.89) / Qty 10.25140697 = 87.03
+Item: PLTR_US_EQ | Cur: '' | AvgPrice: 103.47184337 | Raw: {"ticker": "PLTR_US_EQ", "quantity": 2.62380558, "averagePrice": 103.47184337, "currentPrice": 182.4, "ppl": 151.46, "fxPpl": -2.79, "initialFillDate": "2025-04-07T16:30:01.000+03:00", "frontend": "IOS", "maxBuy": 75475.37619442, "maxSell": null, "pieQuantity": 0}
+  -> Inferred Currency: 'USD'
+  -> Profit-Based Calc: (Val 356.61 - PPL 151.46) / Qty 2.62380558 = 78.19
+Item: TSLA_US_EQ | Cur: '' | AvgPrice: 331.12282271 | Raw: {"ticker": "TSLA_US_EQ", "quantity": 7.0189665, "averagePrice": 331.12282271, "currentPrice": 478.42, "ppl": 732.49, "fxPpl": -37.59, "initialFillDate": "2024-12-20T16:30:04.000+02:00", "frontend": "WEB", "maxBuy": 30452.9810335, "maxSell": null, "pieQuantity": 0}
+  -> Inferred Currency: 'USD'
+  -> Profit-Based Calc: (Val 2502.16 - PPL 732.49) / Qty 7.0189665 = 252.13
+Item: RRl_EQ | Cur: '' | AvgPrice: 639.80008492 | Raw: {"ticker": "RRl_EQ", "quantity": 15.5521236, "averagePrice": 639.80008492, "currentPrice": 1117.8, "ppl": 74.34, "fxPpl": null, "initialFillDate": "2025-04-07T14:42:58.000+03:00", "frontend": "WEB", "maxBuy": 561091.4478764, "maxSell": null, "pieQuantity": 0}
+  -> Inferred Currency: ''
+  -> Fallback Converted UK Pence to GBP 6.3980008492
+Item: FB_US_EQ | Cur: '' | AvgPrice: 563.81047811 | Raw: {"ticker": "FB_US_EQ", "quantity": 2.12324894, "averagePrice": 563.81047811, "currentPrice": 655.67, "ppl": 124.24, "fxPpl": -21.04, "initialFillDate": "2024-12-20T16:30:03.000+02:00", "frontend": "WEB", "maxBuy": 18157.87675106, "maxSell": null, "pieQuantity": 0}
+  -> Inferred Currency: 'USD'
+  -> Profit-Based Calc: (Val 1037.33 - PPL 124.24) / Qty 2.12324894 = 430.05

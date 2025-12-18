@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
-from app.models import HistoricalNetWorth
+from app.models import NetWorthSnapshot
 from app.services.net_worth_service import NetWorthService
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
@@ -14,7 +14,7 @@ class AnalyticsService:
         self.user_id = user_id
         self.net_worth_service = NetWorthService(db, user_id)
 
-    def capture_snapshot(self) -> HistoricalNetWorth:
+    def capture_snapshot(self) -> NetWorthSnapshot:
         """
         Capture current net worth and platform breakdown for historical tracking.
         Should be called every 15 minutes by a scheduler.
@@ -24,20 +24,20 @@ class AnalyticsService:
         current_net_worth = sum(platform_totals.values())
         
         # Store historical data point
-        historical_entry = HistoricalNetWorth(
+        snapshot = NetWorthSnapshot(
             user_id=self.user_id,
             timestamp=datetime.utcnow(),
-            net_worth=current_net_worth,
-            platform_breakdown=platform_totals
+            total_amount=current_net_worth,
+            assets_breakdown=platform_totals
         )
         
-        self.db.add(historical_entry)
+        self.db.add(snapshot)
         self.db.commit()
-        self.db.refresh(historical_entry)
+        self.db.refresh(snapshot)
         
-        return historical_entry
+        return snapshot
 
-    def sample_data_by_interval(self, data_list: List[HistoricalNetWorth], hours: int) -> List[HistoricalNetWorth]:
+    def sample_data_by_interval(self, data_list: List[NetWorthSnapshot], hours: int) -> List[NetWorthSnapshot]:
         """Sample historical data to get roughly one point per interval"""
         if not data_list:
             return []
@@ -69,39 +69,39 @@ class AnalyticsService:
         cutoff_7d = now - timedelta(days=7)
         
         # 1. Process 24h - 7d window
-        recent_old_data = self.db.query(HistoricalNetWorth).filter(
-            HistoricalNetWorth.user_id == self.user_id,
-            HistoricalNetWorth.timestamp < cutoff_24h,
-            HistoricalNetWorth.timestamp >= cutoff_7d
-        ).order_by(HistoricalNetWorth.timestamp.asc()).all()
+        recent_old_data = self.db.query(NetWorthSnapshot).filter(
+            NetWorthSnapshot.user_id == self.user_id,
+            NetWorthSnapshot.timestamp < cutoff_24h,
+            NetWorthSnapshot.timestamp >= cutoff_7d
+        ).order_by(NetWorthSnapshot.timestamp.asc()).all()
         
         if recent_old_data:
             to_keep = self.sample_data_by_interval(recent_old_data, hours=6)
             to_keep_ids = [item.id for item in to_keep]
             
             # Delete the rest in this window
-            self.db.query(HistoricalNetWorth).filter(
-                HistoricalNetWorth.user_id == self.user_id,
-                HistoricalNetWorth.timestamp < cutoff_24h,
-                HistoricalNetWorth.timestamp >= cutoff_7d,
-                ~HistoricalNetWorth.id.in_(to_keep_ids)
+            self.db.query(NetWorthSnapshot).filter(
+                NetWorthSnapshot.user_id == self.user_id,
+                NetWorthSnapshot.timestamp < cutoff_24h,
+                NetWorthSnapshot.timestamp >= cutoff_7d,
+                ~NetWorthSnapshot.id.in_(to_keep_ids)
             ).delete(synchronize_session=False)
             
         # 2. Process > 7d window
-        old_data = self.db.query(HistoricalNetWorth).filter(
-            HistoricalNetWorth.user_id == self.user_id,
-            HistoricalNetWorth.timestamp < cutoff_7d
-        ).order_by(HistoricalNetWorth.timestamp.asc()).all()
+        old_data = self.db.query(NetWorthSnapshot).filter(
+            NetWorthSnapshot.user_id == self.user_id,
+            NetWorthSnapshot.timestamp < cutoff_7d
+        ).order_by(NetWorthSnapshot.timestamp.asc()).all()
         
         if old_data:
             to_keep = self.sample_data_by_interval(old_data, hours=12)
             to_keep_ids = [item.id for item in to_keep]
             
             # Delete the rest
-            self.db.query(HistoricalNetWorth).filter(
-                HistoricalNetWorth.user_id == self.user_id,
-                HistoricalNetWorth.timestamp < cutoff_7d,
-                ~HistoricalNetWorth.id.in_(to_keep_ids)
+            self.db.query(NetWorthSnapshot).filter(
+                NetWorthSnapshot.user_id == self.user_id,
+                NetWorthSnapshot.timestamp < cutoff_7d,
+                ~NetWorthSnapshot.id.in_(to_keep_ids)
             ).delete(synchronize_session=False)
             
         self.db.commit()
@@ -128,23 +128,23 @@ class AnalyticsService:
             start_date = now - timedelta(days=365)
         # 'max' leaves start_date as None
         
-        query = self.db.query(HistoricalNetWorth).filter(
-            HistoricalNetWorth.user_id == self.user_id
+        query = self.db.query(NetWorthSnapshot).filter(
+            NetWorthSnapshot.user_id == self.user_id
         )
         
         if start_date:
-            query = query.filter(HistoricalNetWorth.timestamp >= start_date)
+            query = query.filter(NetWorthSnapshot.timestamp >= start_date)
             
-        data_points = query.order_by(HistoricalNetWorth.timestamp.asc()).all()
+        data_points = query.order_by(NetWorthSnapshot.timestamp.asc()).all()
         
         # Format for frontend graph
         # Assuming frontend wants a list of {date, value} objects
         formatted_data = [
             {
                 "date": point.timestamp.isoformat(),
-                "value": point.net_worth,
+                "value": point.total_amount,
                 # Include platform breakdown if needed for stacked area charts?
-                # "breakdown": point.platform_breakdown 
+                # "breakdown": point.assets_breakdown 
             }
             for point in data_points
         ]

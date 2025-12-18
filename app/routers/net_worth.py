@@ -35,6 +35,15 @@ def get_networth_history(
         return service.get_networth_history(None)
     return service.get_networth_history(int(year))
 
+@router.get("/history/range/months")
+def get_networth_history_months(
+    months: int,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user_id)
+):
+    service = NetWorthService(db, user_id)
+    return service.get_networth_history(year=None, months=months)
+
 @router.post("/snapshot")
 def create_snapshot(
     year: int,
@@ -44,7 +53,7 @@ def create_snapshot(
 ):
     service = NetWorthService(db, user_id)
     entry = service.save_networth_snapshot(year, month)
-    return {"status": "success", "total_networth": entry.total_networth}
+    return {"status": "success", "total_networth": entry.net_worth}
 
 @router.get("/dashboard-summary")
 def get_dashboard_summary(
@@ -61,6 +70,7 @@ def get_dashboard_summary(
         "mom_change_percent": data["month_change"]["percent"],
         "ytd_change": data["year_change"]["amount"],
         "ytd_change_percent": data["year_change"]["percent"],
+        "platform_breakdown": data["platform_breakdown"],
         "platforms": data["platforms"]
     }
 
@@ -80,7 +90,7 @@ def create_intraday_snapshot(
     """Trigger a high-frequency snapshot"""
     service = NetWorthService(db, user_id)
     entry = service.save_intraday_snapshot()
-    return {"status": "success", "timestamp": entry.timestamp, "value": entry.net_worth}
+    return {"status": "success", "timestamp": entry.timestamp, "value": entry.total_amount}
 
 @router.get("/history/intraday/{hours}")
 def get_intraday_history(
@@ -88,5 +98,23 @@ def get_intraday_history(
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user_id)
 ):
+    """Legacy endpoint support"""
     service = NetWorthService(db, user_id)
-    return service.get_intraday_history(hours)
+    # Map to graph data approximation
+    if hours <= 24:
+        return service.get_graph_data('24H')
+    else:
+        return service.get_graph_data('1W')
+
+@router.get("/graph-data")
+def get_graph_data(
+    period: str,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user_id)
+):
+    """
+    Unified endpoint for graph data.
+    Period: 24H, 1W, 1M, 3M, 6M, 1Y, Max
+    """
+    service = NetWorthService(db, user_id)
+    return service.get_graph_data(period)

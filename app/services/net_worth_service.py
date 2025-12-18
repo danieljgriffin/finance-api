@@ -1,9 +1,9 @@
 from sqlalchemy.orm import Session
-from app.models import NetworthEntry, HistoricalNetWorth
+from app.models import MonthlyFinancialRecord, NetWorthSnapshot
 from app.services.holdings_service import HoldingsService
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Dict, Any, List, Optional
-import json
+import calendar
 
 class NetWorthService:
     def __init__(self, db: Session, user_id: int):
@@ -44,112 +44,142 @@ class NetWorthService:
         platform_totals = self.calculate_platform_totals()
         return sum(platform_totals.values())
 
-    def get_networth_history(self, year: Optional[int] = None) -> List[Dict[str, Any]]:
-        """Get networth data. If year is provided, filter by year. Else return all."""
-        query = self.db.query(NetworthEntry).filter(
-            NetworthEntry.user_id == self.user_id
-        )
+    def _parse_month(self, month_str: str) -> int:
+        """Helper to parse month string like 'January', 'Jan', '1st Jan' to 1-12"""
+        month_str = month_str.replace("1st ", "").strip()
+        month_map = {m: i for i, m in enumerate(calendar.month_abbr) if i}
+        full_month_map = {m: i for i, m in enumerate(calendar.month_name) if i}
         
+        if month_str in month_map:
+            return month_map[month_str]
+        if month_str in full_month_map:
+            return full_month_map[month_str]
+        
+        # Fallback/Edge cases from legacy data
+        legacy_map = {
+            'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+            'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12,
+            '31st Dec': 12 # Treat as Dec
+        }
+        if "31st Dec" in month_str:
+            return 12
+            
+        return legacy_map.get(month_str, datetime.now().month)
+
+    def get_networth_history(self, year: Optional[int] = None, months: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Get networth data history."""
+        
+        # If specific year requested, query MonthlyFinancialRecord
         if year:
-            query = query.filter(NetworthEntry.year == year)
+            records = self.db.query(MonthlyFinancialRecord).filter(
+                MonthlyFinancialRecord.user_id == self.user_id,
+                MonthlyFinancialRecord.period_date >= date(year, 1, 1),
+                MonthlyFinancialRecord.period_date <= date(year, 12, 31)
+            ).order_by(MonthlyFinancialRecord.period_date.asc()).all()
             
-        entries = query.all()
+            return [{
+                "date": r.period_date.strftime("%Y-%m-%d"),
+                "value": r.net_worth,
+                "platform_breakdown": r.details
+            } for r in records]
+
+        # If recent months requested (e.g. for chart daily view)
+        if months:
+            start_date = datetime.utcnow() - timedelta(days=months*30)
+            snapshots = self.db.query(NetWorthSnapshot).filter(
+                NetWorthSnapshot.user_id == self.user_id,
+                NetWorthSnapshot.timestamp >= start_date
+            ).order_by(NetWorthSnapshot.timestamp.asc()).all()
+            
+            # If no detailed snapshots, fallback to monthly records
+            if not snapshots:
+                records = self.db.query(MonthlyFinancialRecord).filter(
+                    MonthlyFinancialRecord.user_id == self.user_id,
+                    MonthlyFinancialRecord.period_date >= start_date.date()
+                ).order_by(MonthlyFinancialRecord.period_date.asc()).all()
+                return [{
+                    "date": r.period_date.strftime("%Y-%m-%d"),
+                    "value": r.net_worth,
+                    "platform_breakdown": r.details
+                } for r in records]
+
+            return [{
+                "date": s.timestamp.isoformat(),
+                "value": s.total_amount,
+                "platform_breakdown": s.assets_breakdown
+            } for s in snapshots]
+
+        # Default all time monthly
+        records = self.db.query(MonthlyFinancialRecord).filter(
+            MonthlyFinancialRecord.user_id == self.user_id
+        ).order_by(MonthlyFinancialRecord.period_date.asc()).all()
         
-        # Sort by month if possible, but month is a string name "Jan", "Feb" etc in DB? 
-        # Ideally we convert to date. Assuming "1st Jan" format based on other snippets?
-        # Let's clean this up.
-        
-        result = []
-        for entry in entries:
-            # parsing "1st Jan" or just "Jan"
-            # For chart we likely want a comparable date string
-            # Let's try to make a best effort ISO date string for standard parsing
-            month_map = {
-                'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
-                'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12,
-                '31st Dec': 13 # Treat as month 13 for sorting purposes
-            }
-            # Handle "1st Jan" vs "Jan" vs "31st Dec"
-            month_str = entry.month.replace("1st ", "")
-            # If it was "31st Dec", the replace "1st " did nothing, so it remains "31st Dec".
-            # If it was "1st Dec", it became "Dec".
-            month_num = month_map.get(month_str, 1)
-            
-            # Construct a date string YYYY-MM-DD
-            date_str = f"{year or entry.year}-{month_num:02d}-01"
-            
-            result.append({
-                "date": date_str,
-                "value": entry.total_networth,
-                "platform_breakdown": entry.get_platform_data()
-            })
-            
-        # Sort by date
-        result.sort(key=lambda x: x['date'])
-        
-        return result
+        return [{
+            "date": r.period_date.strftime("%Y-%m-%d"),
+            "value": r.net_worth,
+            "platform_breakdown": r.details
+        } for r in records]
 
     def save_networth_snapshot(self, year: int, month: str):
-        """Take a snapshot of current net worth and save it"""
+        """
+        Take a snapshot of current net worth and save it as a MonthlyFinancialRecord.
+        Typically called "saving month end" or "starting month".
+        """
         platform_totals = self.calculate_platform_totals()
         total_networth = sum(platform_totals.values())
         
-        entry = self.db.query(NetworthEntry).filter(
-            NetworthEntry.user_id == self.user_id,
-            NetworthEntry.year == year,
-            NetworthEntry.month == month
+        month_num = self._parse_month(month)
+        
+        # We store it as the 1st of the month
+        period_date = date(year, month_num, 1)
+        
+        record = self.db.query(MonthlyFinancialRecord).filter(
+            MonthlyFinancialRecord.user_id == self.user_id,
+            MonthlyFinancialRecord.period_date == period_date
         ).first()
         
-        if entry:
-            entry.set_platform_data(platform_totals)
-            entry.total_networth = total_networth
+        if record:
+            record.details = platform_totals
+            record.net_worth = total_networth
         else:
-            entry = NetworthEntry(
+            record = MonthlyFinancialRecord(
                 user_id=self.user_id,
-                year=year,
-                month=month,
-                total_networth=total_networth
+                period_date=period_date,
+                net_worth=total_networth,
+                details=platform_totals
             )
-            entry.set_platform_data(platform_totals)
-            self.db.add(entry)
+            self.db.add(record)
         
         self.db.commit()
-        return entry
+        return record
 
     def get_dashboard_summary(self) -> Dict[str, Any]:
         """
         Get summary for the home page:
         - Total Net Worth
-        - This Month Change (vs 1st of current month)
-        - This Year Change (vs 1st Jan of current year)
+        - This Month Change (vs start of month)
+        - This Year Change (vs start of year)
         - Platform Breakdown with Monthly Change
         """
-        current_date = datetime.now()
-        current_year = current_date.year
-        current_month = current_date.month
-        
-        # Month names mapping
-        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
-                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-        current_month_name = f"1st {month_names[current_month - 1]}"
+        current_date = date.today()
+        current_month_start = date(current_date.year, current_date.month, 1)
+        current_year_start = date(current_date.year, 1, 1)
         
         # 1. Current Net Worth & Platform Totals
         platform_totals = self.calculate_platform_totals()
         total_networth = sum(platform_totals.values())
         
         # 2. Get comparative data points
-        # 1st of Current Month
-        month_start_entry = self.db.query(NetworthEntry).filter(
-            NetworthEntry.user_id == self.user_id,
-            NetworthEntry.year == current_year,
-            NetworthEntry.month == current_month_name
+        # Start of Current Month Record
+        month_start_record = self.db.query(MonthlyFinancialRecord).filter(
+            MonthlyFinancialRecord.user_id == self.user_id,
+            MonthlyFinancialRecord.period_date == current_month_start
         ).first()
         
-        # 1st of Jan (Year Start)
-        year_start_entry = self.db.query(NetworthEntry).filter(
-            NetworthEntry.user_id == self.user_id,
-            NetworthEntry.year == current_year,
-            NetworthEntry.month == '1st Jan'
+        # Start of Year Record
+        year_start_record = self.db.query(MonthlyFinancialRecord).filter(
+            MonthlyFinancialRecord.user_id == self.user_id,
+            MonthlyFinancialRecord.period_date == current_year_start
         ).first()
         
         # 3. Calculate Month Change
@@ -157,9 +187,9 @@ class NetWorthService:
         month_change_percent = 0.0
         month_start_platform_data = {}
         
-        if month_start_entry:
-            month_start_total = month_start_entry.total_networth
-            month_start_platform_data = month_start_entry.get_platform_data()
+        if month_start_record:
+            month_start_total = month_start_record.net_worth
+            month_start_platform_data = month_start_record.details or {}
             if month_start_total > 0:
                 month_change_amount = total_networth - month_start_total
                 month_change_percent = (month_change_amount / month_start_total) * 100
@@ -168,8 +198,8 @@ class NetWorthService:
         year_change_amount = 0.0
         year_change_percent = 0.0
         
-        if year_start_entry:
-            year_start_total = year_start_entry.total_networth
+        if year_start_record:
+            year_start_total = year_start_record.net_worth
             if year_start_total > 0:
                 year_change_amount = total_networth - year_start_total
                 year_change_percent = (year_change_amount / year_start_total) * 100
@@ -198,6 +228,7 @@ class NetWorthService:
                 "amount": year_change_amount,
                 "percent": year_change_percent
             },
+            "platform_breakdown": platform_totals,
             "platforms": platforms_summary
         }
 
@@ -206,30 +237,31 @@ class NetWorthService:
         Get data for the Month/Year tracker page.
         Returns list of monthly snapshots with MoM differences.
         """
-        entries = self.db.query(NetworthEntry).filter(
-            NetworthEntry.user_id == self.user_id
-        ).order_by(NetworthEntry.year.desc(), NetworthEntry.id.desc()).all()
-        
-        # Sort logic to handle month names properly would be ideal here or in frontend
-        # For now, returning raw entries, frontend can sort/process
+        records = self.db.query(MonthlyFinancialRecord).filter(
+            MonthlyFinancialRecord.user_id == self.user_id
+        ).order_by(MonthlyFinancialRecord.period_date.desc()).all()
         
         result = []
-        for i, entry in enumerate(entries):
+        for i, record in enumerate(records):
             # Calculate difference from previous month (next item in list since desc sort)
-            prev_entry = entries[i+1] if i + 1 < len(entries) else None
+            prev_record = records[i+1] if i + 1 < len(records) else None
             
             diff_amount = 0.0
             diff_percent = 0.0
             
-            if prev_entry and prev_entry.total_networth > 0:
-                diff_amount = entry.total_networth - prev_entry.total_networth
-                diff_percent = (diff_amount / prev_entry.total_networth) * 100
-                
+            if prev_record and prev_record.net_worth > 0:
+                diff_amount = record.net_worth - prev_record.net_worth
+                diff_percent = (diff_amount / prev_record.net_worth) * 100
+            
+            # Legacy format support for frontend: year, month string
+            # We can convert date back to legacy format "Jan", "Feb" etc
+            month_name = record.period_date.strftime("%b")
+            
             result.append({
-                "year": entry.year,
-                "month": entry.month,
-                "total_networth": entry.total_networth,
-                "platform_breakdown": entry.get_platform_data(),
+                "year": record.period_date.year,
+                "month": month_name,
+                "total_networth": record.net_worth,
+                "platform_breakdown": record.details,
                 "mom_change_amount": diff_amount,
                 "mom_change_percent": diff_percent
             })
@@ -241,27 +273,92 @@ class NetWorthService:
         platform_totals = self.calculate_platform_totals()
         total_networth = sum(platform_totals.values())
         
-        entry = HistoricalNetWorth(
+        snapshot = NetWorthSnapshot(
             user_id=self.user_id,
             timestamp=datetime.utcnow(),
-            net_worth=total_networth,
-            platform_breakdown=platform_totals
+            total_amount=total_networth,
+            assets_breakdown=platform_totals
         )
-        self.db.add(entry)
+        self.db.add(snapshot)
         self.db.commit()
-        return entry
+        return snapshot
 
-    def get_intraday_history(self, hours: int) -> List[Dict[str, Any]]:
-        """Get granular history for the last N hours"""
-        start_time = datetime.utcnow() - timedelta(hours=hours)
+    def get_graph_data(self, period: str) -> List[Dict[str, Any]]:
+        """
+        Get graph data based on period.
+        Tiered Strategy:
+        - 24H, 1W: NetWorthSnapshot (High frequency)
+        - 1M, 3M: NetWorthSnapshot (High frequency, maybe sampled)
+        - 6M, 1Y, MAX: MonthlyFinancialRecord (Low frequency)
+        """
+        period = period.upper() if period else '1Y'
+        now = datetime.utcnow()
         
-        entries = self.db.query(HistoricalNetWorth).filter(
-            HistoricalNetWorth.user_id == self.user_id,
-            HistoricalNetWorth.timestamp >= start_time
-        ).order_by(HistoricalNetWorth.timestamp.asc()).all()
+        # --- High Frequency / Intraday DB Source ---
+        if period in ['24H', '1W', '1M', '3M']:
+            hours_lookback = 24
+            if period == '1W': hours_lookback = 168
+            elif period == '1M': hours_lookback = 720
+            elif period == '3M': hours_lookback = 2160
+            
+            start_time = now - timedelta(hours=hours_lookback)
+            
+            snapshots = self.db.query(NetWorthSnapshot).filter(
+                NetWorthSnapshot.user_id == self.user_id,
+                NetWorthSnapshot.timestamp >= start_time
+            ).order_by(NetWorthSnapshot.timestamp.asc()).all()
+            
+            data = [{
+                "date": s.timestamp.isoformat(),
+                "value": s.total_amount,
+                "platform_breakdown": s.assets_breakdown
+            } for s in snapshots]
+            
+            # Sampling for longer periods to prevent sending too much data
+            # 1W: ~6h
+            # 1M: ~1d
+            # 3M: ~1d
+            if period == '1W' and len(data) > 40:
+                data = self._sample_data(data, timedelta(hours=6))
+            elif period in ['1M', '3M'] and len(data) > 60:
+                data = self._sample_data(data, timedelta(days=1))
+                
+            return data
+
+        # --- Low Frequency / Monthly DB Source ---
+        # 6M, 1Y, MAX
+        months_lookback = 12 # Default 1Y
+        if period == '6M': months_lookback = 6
+        elif period == 'MAX': months_lookback = 1200 # 100 years
+        
+        start_date = (now - timedelta(days=months_lookback * 30)).date()
+        
+        records = self.db.query(MonthlyFinancialRecord).filter(
+            MonthlyFinancialRecord.user_id == self.user_id,
+            MonthlyFinancialRecord.period_date >= start_date
+        ).order_by(MonthlyFinancialRecord.period_date.asc()).all()
         
         return [{
-            "date": entry.timestamp.isoformat(),
-            "value": entry.net_worth,
-            "platform_breakdown": entry.platform_breakdown
-        } for entry in entries]
+            "date": r.period_date.strftime("%Y-%m-%d"),
+            "value": r.net_worth,
+            "platform_breakdown": r.details
+        } for r in records]
+
+    def _sample_data(self, data: List[Dict], interval: timedelta) -> List[Dict]:
+        """Helper to sample time series data"""
+        if not data: return []
+        
+        sampled = []
+        last_time = None
+        
+        for point in data:
+            pt_time = datetime.fromisoformat(point['date'])
+            if last_time is None or (pt_time - last_time) >= interval:
+                sampled.append(point)
+                last_time = pt_time
+                
+        # Always include latest point
+        if data[-1] not in sampled:
+            sampled.append(data[-1])
+            
+        return sampled

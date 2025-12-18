@@ -4,7 +4,6 @@ from typing import List, Dict
 from app.database import get_db
 from app.dependencies import get_current_user_id
 from app.services.holdings_service import HoldingsService
-from app.services.price_service import PriceService
 from app.schemas import Investment, InvestmentCreate, InvestmentUpdate, PlatformCash, PlatformCashUpdate
 
 router = APIRouter(
@@ -107,24 +106,60 @@ def get_platform_colors(
     return service.get_platform_colors()
 
 @router.post("/refresh-prices")
-def refresh_prices(
+async def refresh_prices(
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user_id)
 ):
-    """Update current prices for all investments with symbols"""
+    """Update current prices for all investments with symbols using robust PriceFetcher"""
     holdings_service = HoldingsService(db, user_id)
-    price_service = PriceService()
-    
-    investments_data = holdings_service.get_investments_by_platform()
-    updated_count = 0
-    
-    for platform, investments in investments_data.items():
-        for inv in investments:
-            symbol = inv.get('symbol')
-            if symbol:
-                price = price_service.get_price(symbol)
-                if price:
-                    holdings_service.update_investment(inv['id'], {'current_price': price})
-                    updated_count += 1
-                    
-    return {"status": "success", "updated_count": updated_count}
+    return await holdings_service.update_all_prices_async()
+
+from pydantic import BaseModel
+
+class Trading212ImportRequest(BaseModel):
+    api_key_id: str
+    api_secret_key: str
+    save_credentials: bool = False
+
+@router.post("/import/trading212")
+async def import_trading212(
+    request: Trading212ImportRequest,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user_id)
+):
+    """Import investments from Trading212"""
+    holdings_service = HoldingsService(db, user_id)
+    try:
+        # Save if requested
+        if request.save_credentials:
+            holdings_service.save_trading212_credentials(request.api_key_id, request.api_secret_key)
+            
+        # Pass both keys for robust auth
+        return await holdings_service.sync_trading212_investments(request.api_key_id, request.api_secret_key)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+class T212Config(BaseModel):
+    api_key_id: str
+    api_secret_key: str
+
+@router.post("/config/trading212")
+def save_trading212_config(
+    config: T212Config,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user_id)
+):
+    """Save Trading212 API credentials securely"""
+    holdings_service = HoldingsService(db, user_id)
+    success = holdings_service.save_trading212_credentials(config.api_key_id, config.api_secret_key)
+    return {"status": "success" if success else "error"}
+
+@router.get("/config/trading212")
+def get_trading212_config(
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user_id)
+):
+    """Check if T212 auto-sync is enabled"""
+    holdings_service = HoldingsService(db, user_id)
+    creds = holdings_service.get_trading212_credentials()
+    return {"enabled": creds is not None}
