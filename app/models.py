@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Date, Text, ForeignKey, UniqueConstraint, JSON
+from sqlalchemy import Column, Integer, String, Float, DateTime, Date, Text, ForeignKey, UniqueConstraint, JSON, Boolean
 from sqlalchemy.orm import relationship
 
 from datetime import datetime
@@ -230,6 +230,7 @@ class Goal(Base):
     target_amount = Column(Float, nullable=False)
     target_date = Column(Date, nullable=False)
     status = Column(String(20), default='active')  # active, completed, paused
+    is_primary = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

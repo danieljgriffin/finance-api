@@ -65,7 +65,9 @@ class GoalBase(BaseModel):
     description: Optional[str] = None
     target_amount: float
     target_date: date
+    target_date: date
     status: str = 'active'
+    is_primary: bool = False
 
 class GoalCreate(GoalBase):
     pass

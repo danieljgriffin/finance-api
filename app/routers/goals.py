@@ -25,13 +25,21 @@ def create_goal(
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user_id)
 ):
+    # If this goal is set to primary, unset others for this user
+    if goal.is_primary:
+        db.query(Goal).filter(
+            Goal.user_id == user_id,
+            Goal.is_primary == True
+        ).update({"is_primary": False})
+
     db_goal = Goal(
         user_id=user_id,
         title=goal.title,
         description=goal.description,
         target_amount=goal.target_amount,
         target_date=goal.target_date,
-        status=goal.status
+        status=goal.status,
+        is_primary=goal.is_primary
     )
     db.add(db_goal)
     db.commit()
@@ -49,6 +57,13 @@ def update_goal(
     if not db_goal:
         raise HTTPException(status_code=404, detail="Goal not found")
     
+    # If is_primary is being set to True, unset others
+    if updates.get("is_primary") is True:
+        db.query(Goal).filter(
+            Goal.user_id == user_id,
+            Goal.is_primary == True
+        ).update({"is_primary": False})
+
     for key, value in updates.items():
         if hasattr(db_goal, key):
             setattr(db_goal, key, value)
