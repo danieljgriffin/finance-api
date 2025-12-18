@@ -255,7 +255,8 @@ class NetWorthService:
             
             # Legacy format support for frontend: year, month string
             # We can convert date back to legacy format "Jan", "Feb" etc
-            month_name = record.period_date.strftime("%b")
+            # Frontend matches "1st Jan", "1st Feb" etc.
+            month_name = f"1st {record.period_date.strftime('%b')}"
             
             result.append({
                 "year": record.period_date.year,
