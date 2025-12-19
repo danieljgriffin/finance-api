@@ -13,6 +13,34 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Authentication Middleware
+from fastapi import Request, HTTPException
+import os
+
+TOKEN = os.environ.get("PERSONAL_API_TOKEN")
+EXEMPT_PATHS = {"/health", "/docs", "/openapi.json"}
+
+@app.middleware("http")
+async def bearer_token_auth(request: Request, call_next):
+    if request.url.path in EXEMPT_PATHS:
+        return await call_next(request)
+    
+    # Allow CORS preflight requests (OPTIONS) to pass without auth
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
+    if not TOKEN:
+        # Fail safe: if token not configured, deny everything except exempt paths
+        # But for development convenience we might print a warning. 
+        # The prompt says: "If not TOKEN: raise HTTPException(status_code=500...)"
+        raise HTTPException(status_code=500, detail="Server token not configured")
+
+    auth = request.headers.get("authorization", "")
+    if auth != f"Bearer {TOKEN}":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    return await call_next(request)
+
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
@@ -23,7 +51,7 @@ app.add_middleware(
         "http://localhost:8000",
         "http://127.0.0.1:8000",
     ],
-    allow_credentials=True, # Keeping True as per previous config and to allow potential auth headers
+    allow_credentials=True, 
     allow_methods=["*"],
     allow_headers=["*"],
 )

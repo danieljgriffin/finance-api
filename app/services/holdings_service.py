@@ -210,8 +210,21 @@ class HoldingsService:
         return {"status": "success", "platform": platform, "color": color}
     
     
+    # Default colors matching Web App Tailwind classes
+    DEFAULT_PLATFORM_COLORS = {
+        'Degiro': '#2563EB',         # bg-blue-600
+        'Trading212 ISA': '#10B981', # bg-emerald-500
+        'EQ (GSK shares)': '#F43F5E',# bg-rose-500
+        'InvestEngine ISA': '#F97316',# bg-orange-500
+        'Crypto': '#A855F7',         # bg-purple-500
+        'HL Stocks & Shares LISA': '#0EA5E9', # bg-sky-500
+        'Cash': '#14B8A6',           # bg-teal-500
+        'Vanguard': '#DC2626',       # bg-red-600
+        'Other': '#64748B'           # bg-slate-500
+    }
+
     def get_platform_colors(self):
-        """Get all custom platform colors"""
+        """Get all custom platform colors (Defaults + User Overrides)"""
         user = self.db.query(User).filter(User.id == self.user_id).first()
         
         prefs = user.preferences if user else {}
@@ -222,10 +235,15 @@ class HoldingsService:
             except:
                 prefs = {}
         
-        if not prefs:
-            return {}
+        user_colors = prefs.get('platform_colors', {}) if prefs else {}
+        
+        # Merge: Defaults < User Overrides
+        # We start with defaults, then update with user specific
+        final_colors = self.DEFAULT_PLATFORM_COLORS.copy()
+        if user_colors:
+            final_colors.update(user_colors)
             
-        return prefs.get('platform_colors', {})
+        return final_colors
 
     def update_all_prices(self) -> Dict[str, Any]:
         """Update live prices for all investments"""
