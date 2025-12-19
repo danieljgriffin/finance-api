@@ -8,6 +8,8 @@ from app.config import settings
 from sqlalchemy.pool import NullPool
 
 SQLALCHEMY_DATABASE_URI = settings.DATABASE_URL
+if SQLALCHEMY_DATABASE_URI.startswith("postgres://"):
+    SQLALCHEMY_DATABASE_URI = SQLALCHEMY_DATABASE_URI.replace("postgres://", "postgresql://", 1)
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URI,
