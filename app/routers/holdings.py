@@ -19,6 +19,17 @@ def get_holdings(
     service = HoldingsService(db, user_id)
     return service.get_investments_by_platform()
 
+from app.schemas import PortfolioSummary
+
+@router.get("/portfolio", response_model=PortfolioSummary)
+def get_portfolio_summary_endpoint(
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user_id)
+):
+    """Get full portfolio summary including global totals and platform breakdowns"""
+    service = HoldingsService(db, user_id)
+    return service.get_portfolio_summary()
+
 @router.post("/", response_model=Investment)
 def add_investment(
     investment: InvestmentCreate,

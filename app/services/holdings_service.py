@@ -32,6 +32,86 @@ class HoldingsService:
         
         return data
 
+    def get_portfolio_summary(self) -> Dict[str, Any]:
+        """Get full portfolio summary with calculated totals"""
+        # 1. Fetch Data
+        investments_map = self.get_investments_by_platform()
+        colors = self.get_platform_colors()
+        
+        # 2. Results Containers
+        platform_summaries = []
+        
+        global_value = 0.0
+        global_invested = 0.0 # Cost of investments only
+        global_pl = 0.0
+        
+        # 3. Process Each Platform
+        for platform_name, investments_data in investments_map.items():
+            # Convert dicts back to objects or use as is? 
+            # get_investments_by_platform returns list of dicts from .to_dict()
+            # But schemas expects models or dicts. Let's use the dicts.
+            
+            # Fetch Cash
+            cash = self.get_platform_cash(platform_name)
+            
+            # Investments Calcs
+            plat_invested = 0.0
+            plat_current_inv_val = 0.0
+            
+            for inv in investments_data:
+                # Calculate P/L for investment if not present
+                # Dict from SQLAlchemy defaults usually just has columns
+                cost = inv.get('amount_spent', 0)
+                # Fallback cost
+                if cost == 0 and inv.get('holdings', 0) > 0:
+                     cost = inv.get('holdings') * inv.get('average_buy_price')
+                
+                val = inv.get('holdings', 0) * inv.get('current_price', 0)
+                
+                plat_invested += cost
+                plat_current_inv_val += val
+                
+            # Platform Totals
+            plat_total_value = plat_current_inv_val + cash
+            plat_pl = plat_current_inv_val - plat_invested
+            
+            plat_pl_percent = (plat_pl / plat_invested * 100) if plat_invested != 0 else 0
+            
+            # Sort investments by Value Descending (User Request)
+            investments_data.sort(key=lambda x: (x.get('holdings', 0) * x.get('current_price', 0)), reverse=True)
+            
+            summary = {
+                "name": platform_name,
+                "total_value": plat_total_value,
+                "total_invested": plat_invested,
+                "total_pl": plat_pl,
+                "total_pl_percent": plat_pl_percent,
+                "cash_balance": cash,
+                "investments": investments_data,
+                "color": colors.get(platform_name, "#808080")
+            }
+            
+            platform_summaries.append(summary)
+            
+            # Global Accumulation
+            global_value += plat_total_value
+            global_invested += plat_invested
+            global_pl += plat_pl
+            
+        # 4. Global Percent
+        global_pl_percent = (global_pl / global_invested * 100) if global_invested != 0 else 0
+        
+        # 5. Sort Platforms by Total Value Descending
+        platform_summaries.sort(key=lambda x: x['total_value'], reverse=True)
+        
+        return {
+            "total_value": global_value,
+            "total_invested": global_invested,
+            "total_pl": global_pl,
+            "total_pl_percent": global_pl_percent,
+            "platforms": platform_summaries
+        }
+
     def get_platform_cash(self, platform: str) -> float:
         """Get cash balance for a platform"""
         cash_entry = self.db.query(PlatformCash).filter(

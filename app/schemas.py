@@ -45,6 +45,24 @@ class PlatformCash(PlatformCashBase):
     class Config:
         from_attributes = True
 
+# Portfolio Summary Schemas
+class PlatformSummary(BaseModel):
+    name: str
+    total_value: float
+    total_invested: float 
+    total_pl: float
+    total_pl_percent: float
+    cash_balance: float
+    investments: List[Investment]
+    color: str
+
+class PortfolioSummary(BaseModel):
+    total_value: float
+    total_invested: float
+    total_pl: float
+    total_pl_percent: float
+    platforms: List[PlatformSummary]
+
 # Net Worth Schemas
 class NetWorthEntryBase(BaseModel):
     year: int
