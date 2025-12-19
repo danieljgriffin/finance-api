@@ -73,7 +73,9 @@ class HoldingsService:
                 
             # Platform Totals
             plat_total_value = plat_current_inv_val + cash
-            plat_pl = plat_current_inv_val - plat_invested
+            
+            # User Request: P/L = Total Value (inc Cash) - Amount Spent (Investments Only)
+            plat_pl = plat_total_value - plat_invested
             
             plat_pl_percent = (plat_pl / plat_invested * 100) if plat_invested != 0 else 0
             
@@ -96,9 +98,13 @@ class HoldingsService:
             # Global Accumulation
             global_value += plat_total_value
             global_invested += plat_invested
+            # global_pl is derived from totals now, or we can sum plat_pl (mathematically same)
             global_pl += plat_pl
             
         # 4. Global Percent
+        # User Request: Global P/L = Global Value - Global Invested
+        # (Sanity check: sum of plat_pl is same: sum(val - inv) = sum(val) - sum(inv))
+        global_pl = global_value - global_invested
         global_pl_percent = (global_pl / global_invested * 100) if global_invested != 0 else 0
         
         # 5. Sort Platforms by Total Value Descending
