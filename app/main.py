@@ -15,9 +15,7 @@ app = FastAPI(
 
 # Authentication Middleware
 from fastapi import Request, HTTPException
-import os
 
-TOKEN = os.environ.get("PERSONAL_API_TOKEN")
 EXEMPT_PATHS = {"/health", "/docs", "/openapi.json"}
 
 @app.middleware("http")
@@ -29,12 +27,7 @@ async def bearer_token_auth(request: Request, call_next):
     if request.method == "OPTIONS":
         return await call_next(request)
 
-    if not TOKEN:
-        # Fail safe: if token not configured, deny everything except exempt paths
-        # But for development convenience we might print a warning. 
-        # The prompt says: "If not TOKEN: raise HTTPException(status_code=500...)"
-        raise HTTPException(status_code=500, detail="Server token not configured")
-
+    TOKEN = settings.API_TOKEN
     auth = request.headers.get("authorization", "")
     if auth != f"Bearer {TOKEN}":
         raise HTTPException(status_code=401, detail="Unauthorized")
