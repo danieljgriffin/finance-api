@@ -15,6 +15,7 @@ app = FastAPI(
 
 # Authentication Middleware
 from fastapi import Request, HTTPException
+from fastapi.responses import JSONResponse
 
 EXEMPT_PATHS = {"/health", "/docs", "/openapi.json"}
 
@@ -30,7 +31,7 @@ async def bearer_token_auth(request: Request, call_next):
     TOKEN = settings.API_TOKEN
     auth = request.headers.get("authorization", "")
     if auth != f"Bearer {TOKEN}":
-        raise HTTPException(status_code=401, detail="Unauthorized")
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
 
     return await call_next(request)
 
