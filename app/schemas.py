@@ -92,6 +92,7 @@ class GoalCreate(GoalBase):
 
 class Goal(GoalBase):
     id: int
+    completed_date: Optional[date] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

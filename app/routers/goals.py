@@ -57,16 +57,26 @@ def update_goal(
     if not db_goal:
         raise HTTPException(status_code=404, detail="Goal not found")
     
+    for key, value in updates.items():
+        if key == "status":
+             # If moving to completed state from non-completed
+             if value in ["ACHIEVED", "COMPLETED"] and db_goal.status not in ["ACHIEVED", "COMPLETED"]:
+                 if not db_goal.completed_date: # Only set if null
+                     db_goal.completed_date = datetime.utcnow().date()
+             # If moving back to active
+             elif value == "ACTIVE":
+                 db_goal.completed_date = None
+        
+        if hasattr(db_goal, key):
+            setattr(db_goal, key, value)
+            
     # If is_primary is being set to True, unset others
     if updates.get("is_primary") is True:
         db.query(Goal).filter(
             Goal.user_id == user_id,
-            Goal.is_primary == True
+            Goal.is_primary == True,
+            Goal.id != goal_id # Ensure we don't unset the one we just set (though update happens after so safe)
         ).update({"is_primary": False})
-
-    for key, value in updates.items():
-        if hasattr(db_goal, key):
-            setattr(db_goal, key, value)
     
     db_goal.updated_at = datetime.utcnow()
     db.commit()

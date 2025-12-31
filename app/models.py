@@ -231,6 +231,7 @@ class Goal(Base):
     target_date = Column(Date, nullable=False)
     status = Column(String(20), default='active')  # active, completed, paused
     is_primary = Column(Boolean, default=False)
+    completed_date = Column(Date, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
