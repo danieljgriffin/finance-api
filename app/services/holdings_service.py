@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from app.models import Investment, PlatformCash, User
 from app.schemas import InvestmentCreate
 from datetime import datetime
@@ -21,7 +22,18 @@ class HoldingsService:
             'InvestEngine ISA', 'Crypto', 'HL Stocks & Shares LISA', 'Cash'
         ]
         
-        for platform in default_platforms:
+        # Add platforms that exist in PlatformCash (e.g. "Other") but have no investments yet
+        cash_platforms = self.db.query(PlatformCash.platform).filter(
+            PlatformCash.user_id == self.user_id
+        ).distinct().all()
+        
+        # cash_platforms is list of tuples [('Other',), ('Degiro',)]
+        dynamic_platforms = [p[0] for p in cash_platforms]
+        
+        # Merge all known platforms
+        all_platforms = set(default_platforms) | set(dynamic_platforms)
+        
+        for platform in all_platforms:
             data[platform] = []
         
         # Group investments by platform
@@ -292,8 +304,41 @@ class HoldingsService:
         prefs['platform_colors'] = colors
         
         user.preferences = prefs
+        flag_modified(user, "preferences")
         self.db.commit()
         return {"status": "success", "platform": platform, "color": color}
+    
+    def delete_platform(self, platform_name: str):
+        """Delete a platform, its cash balance, and all associated investments"""
+        # 1. Delete PlatformCash entry
+        self.db.query(PlatformCash).filter(
+            PlatformCash.user_id == self.user_id,
+            PlatformCash.platform == platform_name
+        ).delete()
+        
+        # 2. Delete all Investments for this platform
+        # Must iterate to trigger ORM cascades (like deleting CryptoWallet orphans)
+        investments_to_delete = self.db.query(Investment).filter(
+            Investment.user_id == self.user_id,
+            Investment.platform == platform_name
+        ).all()
+        
+        for inv in investments_to_delete:
+            self.db.delete(inv)
+        
+        # 3. Remove color preference (optional clean up)
+        user = self.db.query(User).filter(User.id == self.user_id).first()
+        if user and user.preferences:
+            prefs = dict(user.preferences)
+            colors = prefs.get('platform_colors', {})
+            if platform_name in colors:
+                del colors[platform_name]
+                prefs['platform_colors'] = colors
+                user.preferences = prefs
+                flag_modified(user, "preferences")
+        
+        self.db.commit()
+        return {"status": "success", "platform": platform_name}
     
     
     # Default colors matching Web App Tailwind classes

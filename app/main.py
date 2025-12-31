@@ -59,13 +59,14 @@ def health_check():
     return {"status": "healthy"}
 
 # Import and include routers
-from app.routers import net_worth, holdings, goals, cashflow, analytics
+from app.routers import net_worth, holdings, goals, cashflow, analytics, crypto
 
 app.include_router(net_worth.router)
 app.include_router(holdings.router)
 app.include_router(goals.router)
 app.include_router(cashflow.router)
 app.include_router(analytics.router)
+app.include_router(crypto.router)
 
 import asyncio
 from datetime import datetime
@@ -127,4 +128,25 @@ async def run_scheduler():
 
 @app.on_event("startup")
 async def startup_event():
+    # 1. Seed Default User (ID 1) if missing
+    # This ensures local testing works immediately without manual DB setup
+    try:
+        db = SessionLocal()
+        from app.models import User
+        user = db.query(User).filter(User.id == 1).first()
+        if not user:
+            logger.info("Startup: Seeding default user (ID 1)...")
+            default_user = User(
+                id=1, 
+                email="local@test.com", 
+                preferences={"platform_colors": {}}
+            )
+            db.add(default_user)
+            db.commit()
+            logger.info("Startup: Default user seeded successfully.")
+        db.close()
+    except Exception as e:
+        logger.error(f"Startup: Failed to seed user: {e}")
+
+    # 2. Start Scheduler
     asyncio.create_task(run_scheduler())

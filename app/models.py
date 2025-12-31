@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, Float, DateTime, Date, Text, ForeignKey, UniqueConstraint, JSON, Boolean
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 
 from datetime import datetime
 import json
@@ -273,4 +273,50 @@ class NetWorthSnapshot(Base):
             'assets_breakdown': self.assets_breakdown,
             'currency': self.currency,
             'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+class CryptoWallet(Base):
+    __tablename__ = 'crypto_wallets'
+    
+    id = Column(Integer, primary_key=True)
+    investment_id = Column(Integer, ForeignKey('investments.id'), nullable=False)
+    xpub = Column(String(500), nullable=False)
+    address_type = Column(String(20), default='bech32') # bech32, legacy, p2sh
+    status = Column(String(20), default='active') # active, syncing, error
+    last_synced_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationship to Investment
+    # Relationship to Investment
+    investment = relationship("Investment", backref=backref("crypto_wallet", cascade="all, delete-orphan", uselist=True))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'investment_id': self.investment_id,
+            'xpub': self.xpub,
+            'address_type': self.address_type,
+            'status': self.status,
+            'last_synced_at': self.last_synced_at.isoformat() if self.last_synced_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+class CryptoBalanceSnapshot(Base):
+    __tablename__ = 'crypto_balance_snapshots'
+    
+    id = Column(Integer, primary_key=True)
+    wallet_id = Column(Integer, ForeignKey('crypto_wallets.id'), nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    balance = Column(Float, nullable=False) # In cryptocurrency units (e.g. BTC)
+    currency = Column(String(10), default='BTC')
+    
+    wallet = relationship("CryptoWallet", backref=backref("snapshots", cascade="all, delete-orphan", uselist=True))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'wallet_id': self.wallet_id,
+            'timestamp': self.timestamp.isoformat() if self.timestamp else None,
+            'balance': self.balance,
+            'currency': self.currency
         }

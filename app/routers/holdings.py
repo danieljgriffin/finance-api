@@ -116,6 +116,15 @@ def get_platform_colors(
     service = HoldingsService(db, user_id)
     return service.get_platform_colors()
 
+@router.delete("/platform/{platform_name}")
+def delete_platform(
+    platform_name: str,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user_id)
+):
+    service = HoldingsService(db, user_id)
+    return service.delete_platform(platform_name)
+
 @router.post("/refresh-prices")
 async def refresh_prices(
     db: Session = Depends(get_db),

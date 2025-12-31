@@ -12,4 +12,4 @@ requests==2.31.0
 yfinance==0.2.36
 trafilatura==1.6.3
 cryptography==42.0.0
-
+hdwallet>=2.2.1
