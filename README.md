@@ -40,7 +40,7 @@ Backend API for the Personal Finance Tracker, built with FastAPI and SQLAlchemy.
 
 4.  **Run the server**
     ```bash
-    uvicorn app.main:app --reload
+    uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
     ```
     Access docs at `http://localhost:8000/docs`.
 
