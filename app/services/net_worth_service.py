@@ -153,6 +153,20 @@ class NetWorthService:
         self.db.commit()
         return record
 
+    def _ensure_current_month_snapshot(self):
+        """Helper: Ensure a snapshot exists for the 1st of the current month"""
+        today = date.today()
+        current_month_start = date(today.year, today.month, 1)
+        
+        current_record = self.db.query(MonthlyFinancialRecord).filter(
+            MonthlyFinancialRecord.user_id == self.user_id,
+            MonthlyFinancialRecord.period_date == current_month_start
+        ).first()
+        
+        if not current_record:
+            month_name_str = calendar.month_name[today.month]
+            self.save_networth_snapshot(today.year, month_name_str)
+
     def get_dashboard_summary(self) -> Dict[str, Any]:
         """
         Get summary for the home page:
@@ -161,6 +175,9 @@ class NetWorthService:
         - This Year Change (vs start of year)
         - Platform Breakdown with Monthly Change
         """
+        # Ensure we have a baseline for this month so 'Month Change' is valid
+        self._ensure_current_month_snapshot()
+
         current_date = date.today()
         current_month_start = date(current_date.year, current_date.month, 1)
         current_year_start = date(current_date.year, 1, 1)
@@ -236,7 +253,12 @@ class NetWorthService:
         """
         Get data for the Month/Year tracker page.
         Returns list of monthly snapshots with MoM differences.
+        Auto-generates snapshot for the current month if missing (Lazy Initialization).
         """
+        # 1. Check/Create Current Month Record
+        self._ensure_current_month_snapshot()
+        
+        # 2. Fetch All Records (including the potentially just-created one)
         records = self.db.query(MonthlyFinancialRecord).filter(
             MonthlyFinancialRecord.user_id == self.user_id
         ).order_by(MonthlyFinancialRecord.period_date.desc()).all()
