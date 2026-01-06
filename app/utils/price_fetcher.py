@@ -339,11 +339,14 @@ class PriceFetcher:
     async def get_multiple_prices_async(self, symbols: List[str]) -> Dict[str, float]:
         """Fetch prices for multiple symbols in parallel"""
         prices = {}
-        # Limit concurrency to avoid rate limits
-        sem = asyncio.Semaphore(10)
+        # Limit concurrency to avoid rate limits (Reduced from 10 to 4)
+        sem = asyncio.Semaphore(4)
+        import random
 
         async def fetch_with_sem(symbol: str):
             async with sem:
+                # Add random jitter to avoid burst patterns
+                await asyncio.sleep(random.uniform(0.5, 2.0))
                 price = await self.get_price_async(symbol)
                 if price:
                     prices[symbol] = price
