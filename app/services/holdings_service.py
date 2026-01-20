@@ -404,30 +404,58 @@ class HoldingsService:
         return {"status": "success", "updated_count": updated_count}
 
     async def update_all_prices_async(self) -> Dict[str, Any]:
-        """Update live prices for all investments asynchronously"""
+        """
+        Update live prices for all investments asynchronously.
+        InvestEngine holdings use 'previous_close' to align with their app.
+        Others use 'live' prices.
+        """
         from app.utils.price_fetcher import PriceFetcher
+        import logging
+        logger = logging.getLogger(__name__)
+        
         price_fetcher = PriceFetcher()
         
         investments = self.db.query(Investment).filter(Investment.user_id == self.user_id).all()
         
+        # Split investments
+        investengine_investments = [inv for inv in investments if inv.platform == 'InvestEngine ISA']
+        standard_investments = [inv for inv in investments if inv.platform != 'InvestEngine ISA']
+        
+        investengine_symbols = list(set([inv.symbol for inv in investengine_investments if inv.symbol]))
+        standard_symbols = list(set([inv.symbol for inv in standard_investments if inv.symbol]))
+        
         updated_count = 0
-        symbols = [inv.symbol for inv in investments if inv.symbol]
         
-        # Eliminate duplicates
-        symbols = list(set(symbols))
-        
-        if not symbols:
-            return {"status": "skipped", "message": "No symbols to update"}
+        # 1. Fetch Standard (Live)
+        prices_standard = {}
+        if standard_symbols:
+            logger.info(f"HoldingsService: Fetching LIVE prices for {len(standard_symbols)} symbols...")
+            prices_standard = await price_fetcher.get_multiple_prices_async(standard_symbols, use_previous_close=False)
             
-        prices = await price_fetcher.get_multiple_prices_async(symbols)
+        # 2. Fetch InvestEngine (Previous Close)
+        prices_investengine = {}
+        if investengine_symbols:
+            logger.info(f"HoldingsService: Fetching PREV CLOSE prices for {len(investengine_symbols)} InvestEngine symbols...")
+            prices_investengine = await price_fetcher.get_multiple_prices_async(investengine_symbols, use_previous_close=True)
+            
+        # 3. Update Investments
         
-        for investment in investments:
-            if investment.symbol and investment.symbol in prices:
-                investment.current_price = prices[investment.symbol]
-                investment.last_updated = datetime.now()
-                updated_count += 1
+        # Standard
+        for investment in standard_investments:
+             if investment.symbol and investment.symbol in prices_standard:
+                 investment.current_price = prices_standard[investment.symbol]
+                 investment.last_updated = datetime.now()
+                 updated_count += 1
+        
+        # InvestEngine
+        for investment in investengine_investments:
+             if investment.symbol and investment.symbol in prices_investengine:
+                 investment.current_price = prices_investengine[investment.symbol]
+                 investment.last_updated = datetime.now()
+                 updated_count += 1
                 
         self.db.commit()
+        logger.info(f"HoldingsService: Updated {updated_count} investments (Std: {len(prices_standard)}, IE: {len(prices_investengine)}).")
         return {"status": "success", "updated_count": updated_count}
                 
     

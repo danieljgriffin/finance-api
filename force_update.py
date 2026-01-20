@@ -1,23 +1,39 @@
+import asyncio
+import sys
+import os
+import logging
+from datetime import datetime
+
+# Add the parent directory to sys.path
+sys.path.append(os.getcwd())
+
 from app.database import SessionLocal
-from app.models import Investment
 from app.services.holdings_service import HoldingsService
 
-db = SessionLocal()
-service = HoldingsService(db, 1) # Assuming user_id 1
+# Configure logging to see our new logs
+logging.basicConfig(level=logging.INFO)
 
-print("--- Checking Symbols for Whitespace ---")
-investments = db.query(Investment).all()
-for inv in investments:
-    if inv.symbol:
-        print(f"'{inv.symbol}' (Len: {len(inv.symbol)}) - Platform: {inv.platform}")
+async def force_update():
+    print(f"Starting force update at {datetime.now()}")
+    db = SessionLocal()
+    try:
+        service = HoldingsService(db, user_id=1)
+        
+        # 1. Update Prices
+        print("Trigerring update_all_prices_async...")
+        result = await service.update_all_prices_async()
+        print(f"Update Result: {result}")
+        
+        # 2. Check a few prices
+        from app.models import Investment
+        invs = db.query(Investment).filter(Investment.platform == 'Degiro').limit(3).all()
+        for inv in invs:
+             print(f"  {inv.symbol}: {inv.current_price} (Updated: {inv.last_updated})")
 
-print("\n--- Manually Triggering Update ---")
-result = service.update_all_prices()
-print(f"Update Result: {result}")
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        db.close()
 
-print("\n--- Checking Updated Prices ---")
-# Re-query
-investments = db.query(Investment).all()
-for inv in investments:
-    if inv.symbol and inv.platform in ('Trading212 ISA', 'InvestEngine ISA'):
-        print(f"{inv.platform} - {inv.symbol}: {inv.current_price} (Updated: {inv.last_updated})")
+if __name__ == "__main__":
+    asyncio.run(force_update())

@@ -127,7 +127,7 @@ class PriceFetcher:
             logger.error(f"Error fetching CoinGecko price: {e}")
         return None
 
-    def get_price(self, symbol: str) -> Optional[float]:
+    def get_price(self, symbol: str, use_previous_close: bool = False) -> Optional[float]:
         """Fetch current price for a given symbol"""
         try:
             if not symbol: return None
@@ -151,9 +151,14 @@ class PriceFetcher:
             
             # Method 1: fast_info (Newer, faster, less prone to breaking)
             try:
-                price = ticker.fast_info.last_price
-                currency = ticker.fast_info.currency
-                logger.info(f"PriceFetcher: Got fast_info for {symbol}: {price} {currency}")
+                if use_previous_close:
+                    price = ticker.fast_info.previous_close
+                    currency = ticker.fast_info.currency
+                    logger.info(f"PriceFetcher: Got previous_close for {symbol}: {price} {currency}")
+                else:
+                    price = ticker.fast_info.last_price
+                    currency = ticker.fast_info.currency
+                    logger.info(f"PriceFetcher: Got fast_info for {symbol}: {price} {currency}")
             except Exception as e:
                 logger.warning(f"PriceFetcher: fast_info failed for {symbol}: {e}")
             
@@ -162,6 +167,13 @@ class PriceFetcher:
                 try:
                     hist = ticker.history(period="5d") # 5d to cover weekends/holidays
                     if not hist.empty:
+                        # For previous close, we might want the second to last if we are strictly looking for prev close?
+                        # But history 'Close' is closed bars. 
+                        # If market is open, last bar is current. 
+                        # If use_previous_close is True, we should take .iloc[-2] if it exists?
+                        # For simplicity/robustness, fast_info.previous_close is best. 
+                        # If falling back to history for "previous close", it's tricky without knowing market state.
+                        # Let's just use last close for now as fallback for both (usually close enough if fast_info fails)
                         price = float(hist['Close'].iloc[-1])
                         # Try to get currency from metadata if fast_info failed
                         meta = ticker.history_metadata
@@ -331,12 +343,12 @@ class PriceFetcher:
             if p: prices[symbol] = p
         return prices
 
-    async def get_price_async(self, symbol: str) -> Optional[float]:
+    async def get_price_async(self, symbol: str, use_previous_close: bool = False) -> Optional[float]:
         """Fetch current price asynchronously"""
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self.get_price, symbol)
+        return await loop.run_in_executor(None, self.get_price, symbol, use_previous_close)
 
-    async def get_multiple_prices_async(self, symbols: List[str]) -> Dict[str, float]:
+    async def get_multiple_prices_async(self, symbols: List[str], use_previous_close: bool = False) -> Dict[str, float]:
         """Fetch prices for multiple symbols in parallel"""
         prices = {}
         # Limit concurrency to avoid rate limits (Reduced from 10 to 4)
@@ -347,7 +359,7 @@ class PriceFetcher:
             async with sem:
                 # Add random jitter to avoid burst patterns
                 await asyncio.sleep(random.uniform(0.5, 2.0))
-                price = await self.get_price_async(symbol)
+                price = await self.get_price_async(symbol, use_previous_close)
                 if price:
                     prices[symbol] = price
 

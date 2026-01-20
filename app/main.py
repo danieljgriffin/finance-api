@@ -124,18 +124,18 @@ async def run_scheduler():
                 holdings_service = HoldingsService(db, user_id=1)
                 
                 logger.info("Scheduler: Refreshing prices...")
-                # Add timeout to prevent hanging
-                await asyncio.wait_for(holdings_service.update_all_prices_async(), timeout=60)
+                # Add timeout to prevent hanging (Increased to 300s)
+                await asyncio.wait_for(holdings_service.update_all_prices_async(), timeout=300)
                 
                 # Auto-sync Trading212 if credentials exist
                 try:
                     creds = holdings_service.get_trading212_credentials()
                     if creds:
                         logger.info("Scheduler: Auto-syncing Trading212...")
-                        # Add timeout to prevent hanging
+                        # Add timeout to prevent hanging (Increased to 300s)
                         await asyncio.wait_for(
                             holdings_service.sync_trading212_investments(creds['api_key_id'], creds['api_secret_key']),
-                            timeout=60
+                            timeout=300
                         )
                 except asyncio.TimeoutError:
                     logger.error("Scheduler: Trading212 sync timed out")
