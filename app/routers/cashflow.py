@@ -39,6 +39,25 @@ def get_income_data(
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user_id)
 ):
+    # Auto-create current year if it doesn't exist
+    from datetime import datetime
+    current_year = str(datetime.now().year)
+    
+    exists = db.query(IncomeData).filter(
+        IncomeData.user_id == user_id,
+        IncomeData.year == current_year
+    ).first()
+    
+    if not exists:
+        new_entry = IncomeData(
+            user_id=user_id,
+            year=current_year,
+            income=0,
+            investment=0
+        )
+        db.add(new_entry)
+        db.commit()
+    
     return db.query(IncomeData).filter(IncomeData.user_id == user_id).all()
 
 @router.post("/income", response_model=IncomeDataSchema)

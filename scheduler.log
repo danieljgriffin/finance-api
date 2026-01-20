@@ -163,3 +163,39 @@
 2026-01-20 13:45:20,815 - app.services.holdings_service - INFO - HoldingsService: Updated 26 investments (Std: 19, IE: 4).
 2026-01-20 13:45:21,466 - app.main - INFO - Scheduler: Snapshot completed successfully
 2026-01-20 13:45:21,467 - app.main - INFO - Scheduler: Waiting 279s until next 5-minute alignment...
+2026-01-20 13:50:00,469 - app.main - INFO - Scheduler: Taking aligned net worth snapshot...
+2026-01-20 13:50:00,469 - app.main - INFO - Scheduler: Refreshing prices...
+2026-01-20 13:50:00,683 - app.services.holdings_service - INFO - HoldingsService: Fetching LIVE prices for 24 symbols...
+2026-01-20 13:50:01,537 - app.utils.price_fetcher - INFO - PriceFetcher: Got fast_info for AAPL: 255.52999877929688 USD
+2026-01-20 13:50:01,721 - app.utils.price_fetcher - INFO - PriceFetcher: Got fast_info for ABBV: 214.35000610351562 USD
+2026-01-20 13:50:02,133 - app.utils.price_fetcher - INFO - PriceFetcher: Got fast_info for PLTR: 170.9600067138672 USD
+2026-01-20 13:50:03,161 - app.utils.price_fetcher - INFO - PriceFetcher: Got fast_info for ACHR: 8.859999656677246 USD
+2026-01-20 13:50:03,776 - app.utils.price_fetcher - INFO - PriceFetcher: Got fast_info for MCD: 307.42999267578125 USD
+2026-01-20 13:50:04,050 - app.utils.price_fetcher - INFO - PriceFetcher: Got fast_info for META: 620.25 USD
+2026-01-20 13:50:04,122 - app.utils.price_fetcher - INFO - Got price from FT for GB00BYVGKV59: 3.693
+2026-01-20 13:50:04,994 - app.utils.price_fetcher - INFO - PriceFetcher: Got fast_info for GSK.L: 1785.0 GBp
+2026-01-20 13:50:05,638 - app.utils.price_fetcher - INFO - Got price from FT for GB00BMN91T34: 2.3601
+2026-01-20 13:50:05,809 - app.utils.price_fetcher - INFO - PriceFetcher: Got fast_info for HLN.L: 367.1000061035156 GBp
+2026-01-20 13:50:06,959 - app.utils.price_fetcher - INFO - PriceFetcher: Got fast_info for VUSA.L: 96.26249694824219 GBP
+2026-01-20 13:50:07,309 - app.utils.price_fetcher - INFO - PriceFetcher: Got fast_info for NVO: 62.33000183105469 USD
+2026-01-20 13:50:07,327 - app.utils.price_fetcher - INFO - Got price from FT for LU1033663649: 10.58
+2026-01-20 13:50:08,222 - app.utils.price_fetcher - INFO - PriceFetcher: Got fast_info for KO: 70.44000244140625 USD
+2026-01-20 13:50:08,864 - app.utils.price_fetcher - INFO - PriceFetcher: Got fast_info for TSLA: 437.5 USD
+2026-01-20 13:50:09,000 - app.utils.price_fetcher - INFO - PriceFetcher: Got fast_info for NVDA: 186.22999572753906 USD
+2026-01-20 13:50:09,007 - app.utils.price_fetcher - INFO - PriceFetcher: Got fast_info for XDEW.L: 108.9000015258789 USD
+2026-01-20 13:50:09,767 - app.utils.price_fetcher - INFO - PriceFetcher: Got fast_info for LLY: 1038.4000244140625 USD
+2026-01-20 13:50:10,686 - app.utils.price_fetcher - INFO - PriceFetcher: Got fast_info for RR.L: 1254.5 GBp
+2026-01-20 13:50:14,225 - app.services.holdings_service - INFO - HoldingsService: Fetching PREV CLOSE prices for 4 InvestEngine symbols...
+2026-01-20 13:50:14,844 - app.utils.price_fetcher - INFO - PriceFetcher: Got previous_close for IITU.L: 3051.0 GBp
+2026-01-20 13:50:15,249 - app.utils.price_fetcher - INFO - PriceFetcher: Got previous_close for SGLN.L: 6752.13134765625 GBp
+2026-01-20 13:50:15,964 - app.utils.price_fetcher - INFO - PriceFetcher: Got previous_close for CNX1.L: 107540.0 GBp
+2026-01-20 13:50:16,207 - app.utils.price_fetcher - INFO - PriceFetcher: Got previous_close for VUAG.L: 98.2699966430664 GBP
+2026-01-20 13:50:16,835 - app.services.holdings_service - INFO - HoldingsService: Updated 29 investments (Std: 22, IE: 4).
+2026-01-20 13:50:17,456 - app.main - INFO - Scheduler: Snapshot completed successfully
+2026-01-20 13:50:17,456 - app.main - INFO - Scheduler: Waiting 283s until next 5-minute alignment...
+2026-01-20 13:55:00,458 - app.main - INFO - Scheduler: Taking aligned net worth snapshot...
+2026-01-20 13:55:00,459 - app.main - INFO - Scheduler: Refreshing prices...
+2026-01-20 13:55:00,830 - app.services.holdings_service - INFO - HoldingsService: Fetching LIVE prices for 24 symbols...
+2026-01-20 13:55:01,555 - app.utils.price_fetcher - INFO - PriceFetcher: Got fast_info for PLTR: 170.9600067138672 USD
+2026-01-20 13:55:03,212 - app.main - INFO - Scheduler: Started. Waiting for next 5-minute alignment...
+2026-01-20 13:55:03,212 - app.main - INFO - Scheduler: Waiting 297s until next 5-minute alignment...
