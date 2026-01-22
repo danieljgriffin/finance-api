@@ -97,24 +97,23 @@ scheduler_status = {
 async def run_scheduler():
     """Background task to take net worth snapshots every 5 minutes, aligned to the clock"""
     
-    logger.info("Scheduler: Started. Waiting for next 1-minute alignment...")
+    logger.info("Scheduler: Started. Waiting for next 5-minute alignment...")
     
     # Track previous update to prevent double firing if clock skews
     last_processed_minute = -1
 
     while True:
         try:
-            # Calculate time to next minute interval (00 seconds)
+            # Calculate time to next 5 minute interval (00, 05, 10, 15 ...)
             now = datetime.utcnow()
-            
-            # Simple 1-minute alignment
-            seconds_to_wait = 60 - now.second
+            minutes_to_next = 5 - (now.minute % 5)
+            seconds_to_wait = (minutes_to_next * 60) - now.second
             
             # Ensure we don't sleep <= 0 (sanity check)
             if seconds_to_wait <= 0:
-                 seconds_to_wait = 60
+                 seconds_to_wait = 300
             
-            logger.info(f"Scheduler: Waiting {seconds_to_wait}s until next minute alignment...")
+            logger.info(f"Scheduler: Waiting {seconds_to_wait}s until next 5-minute alignment...")
             scheduler_status["last_status"] = "waiting"
             await asyncio.sleep(seconds_to_wait)
 

@@ -127,23 +127,41 @@ class PriceFetcher:
             logger.error(f"Error fetching CoinGecko price: {e}")
         return None
 
+    # Simple in-memory cache: {symbol: {'price': float, 'time': datetime}}
+    _PRICE_CACHE = {}
+    _CACHE_TTL_SECONDS = 300 # 5 Minutes Cache to be safe
+
     def get_price(self, symbol: str, use_previous_close: bool = False) -> Optional[float]:
-        """Fetch current price for a given symbol"""
+        """Fetch current price for a given symbol with caching"""
         try:
             if not symbol: return None
             
+            # Check Cache
+            now = datetime.now()
+            cached = self._PRICE_CACHE.get(symbol)
+            if cached:
+                age = (now - cached['time']).total_seconds()
+                # If cache is valid (abs(age) handles partial clock weirdness, though unexpected)
+                if age < self._CACHE_TTL_SECONDS:
+                    # logger.info(f"PriceFetcher: Using cached value for {symbol} (Age: {int(age)}s)")
+                    return cached['price']
+
             # Crypto
             clean_symbol = symbol.replace('-USD', '').upper()
             if clean_symbol in self.crypto_mappings:
-                return self.get_crypto_price_from_coingecko(symbol)
+                price = self.get_crypto_price_from_coingecko(symbol)
+                if price:
+                    self._PRICE_CACHE[symbol] = {'price': price, 'time': now}
+                    return price
             
             # Special funds
             if symbol in self.special_funds:
-                return self.get_special_fund_price(symbol)
+                price = self.get_special_fund_price(symbol)
+                if price:
+                    self._PRICE_CACHE[symbol] = {'price': price, 'time': now}
+                    return price
                 
             # Yahoo Finance
-            # Use User-Agent hack just in case, though yfinance handles it usually
-            # Session usage could be added but let's try standard first with robust methods
             ticker = yf.Ticker(symbol)
             
             price = None
@@ -154,56 +172,66 @@ class PriceFetcher:
                 if use_previous_close:
                     price = ticker.fast_info.previous_close
                     currency = ticker.fast_info.currency
-                    logger.info(f"PriceFetcher: Got previous_close for {symbol}: {price} {currency}")
+                    # logger.info(f"PriceFetcher: Got previous_close for {symbol}: {price} {currency}")
                 else:
                     price = ticker.fast_info.last_price
                     currency = ticker.fast_info.currency
-                    logger.info(f"PriceFetcher: Got fast_info for {symbol}: {price} {currency}")
+                    # logger.info(f"PriceFetcher: Got fast_info for {symbol}: {price} {currency}")
             except Exception as e:
-                logger.warning(f"PriceFetcher: fast_info failed for {symbol}: {e}")
+                # logger.warning(f"PriceFetcher: fast_info failed for {symbol}: {e}")
+                pass
             
             # Method 2: History (Reliable Fallback)
             if price is None:
                 try:
-                    hist = ticker.history(period="5d") # 5d to cover weekends/holidays
+                    hist = ticker.history(period="5d")
                     if not hist.empty:
-                        # For previous close, we might want the second to last if we are strictly looking for prev close?
-                        # But history 'Close' is closed bars. 
-                        # If market is open, last bar is current. 
-                        # If use_previous_close is True, we should take .iloc[-2] if it exists?
-                        # For simplicity/robustness, fast_info.previous_close is best. 
-                        # If falling back to history for "previous close", it's tricky without knowing market state.
-                        # Let's just use last close for now as fallback for both (usually close enough if fast_info fails)
                         price = float(hist['Close'].iloc[-1])
-                        # Try to get currency from metadata if fast_info failed
                         meta = ticker.history_metadata
                         if meta and 'currency' in meta:
                             currency = meta['currency']
                         elif symbol.endswith('.L'):
                             currency = 'GBp'
-                        logger.info(f"PriceFetcher: Got history price for {symbol}: {price} {currency}")
+                        # logger.info(f"PriceFetcher: Got history price for {symbol}: {price} {currency}")
                 except Exception as e:
-                    logger.warning(f"PriceFetcher: history failed for {symbol}: {e}")
+                    # logger.warning(f"PriceFetcher: history failed for {symbol}: {e}")
+                    pass
+
+            # Method 3: Google Finance Fallback (If Yahoo Failed)
+            if price is None:
+                # logger.info(f"PriceFetcher: Yahoo failed for {symbol}, trying Google Finance...")
+                price = self.scrape_google_finance(symbol)
+                if price:
+                    # Assume currency based on symbol logic or just take raw for now
+                    if symbol.endswith('.L'): currency = 'GBp' # Google usually gives Pence for UK but we need to check
+                    # Actually Google gave "GBX 1,245" for RR.L which matches Yahoo.
+                    # But my logic strips GBX. 
+                    # If it was > 500, we treat as Pence in normalization below
+                    pass 
 
             # Process Price
             if price is not None:
+                final_price = float(price)
+                
                 # Normalization
-                if currency == 'GBp' or currency == 'GBX' or (symbol.endswith('.L') and price > 500): 
-                    # Pence to Pounds (rough heuristic for price > 500 actions usually pence for major UK stocks)
-                    # But if currency is explicitly GBp, always divide.
+                # If Google gave 1245 for RR.L, and we think it's GBp, we divide by 100 -> 12.45
+                if currency == 'GBp' or currency == 'GBX' or (symbol.endswith('.L') and final_price > 500): 
                     if currency in ['GBp', 'GBX']:
-                        return float(price) / 100
-                    # Fallback heuristic: If no currency known and it's .L and huge price
-                    return float(price) / 100
+                        final_price = final_price / 100
+                    else:
+                        final_price = final_price / 100
                     
                 if currency == 'USD':
-                    return self.convert_usd_to_gbp(float(price))
+                    final_price = self.convert_usd_to_gbp(final_price)
                 
-                # Default: return as is (EUR, GBP, etc)
-                return float(price)
+                # Update Cache
+                self._PRICE_CACHE[symbol] = {'price': final_price, 'time': now}
+                return final_price
                 
         except Exception as e:
             logger.error(f"Error fetching price for {symbol}: {e}")
+            # Fallback to cache even if expired? Optional, but stick to standard for now.
+        
         return None
 
     def get_special_fund_price(self, isin: str) -> Optional[float]:
@@ -335,6 +363,53 @@ class PriceFetcher:
              pass
         return None
     
+    def scrape_google_finance(self, symbol: str) -> Optional[float]:
+        """Scrape price from Google Finance fallback"""
+        try:
+            # Simple header to look like browser
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+            
+            # Map common suffixes to Google format if possible
+            # Yahoo: RR.L -> Google: RR or LON:RR
+            # Try search query generic first: q=symbol
+            query = symbol
+            if symbol.endswith('.L'):
+                # Try explicit LON: prefix for UK
+                # RR.L -> LON:RR
+                base = symbol.replace('.L', '')
+                url = f"https://www.google.com/finance/quote/{base}:LON"
+            elif symbol == 'AAPL':
+                 url = "https://www.google.com/finance/quote/AAPL:NASDAQ"
+            else:
+                 # Generic search fallback
+                 url = f"https://www.google.com/finance?q={symbol}"
+
+            response = requests.get(url, headers=headers, timeout=5)
+            if response.status_code != 200: 
+                return None
+            
+            content = response.text
+            
+            # Regex for the specific class provided by browser agent
+            # <div class="YMlKec fxKbKc">185.10</div>
+            # We look for YMlKec because fxKbKc might be layout specific
+            
+            # Look for: class="YMlKec fxKbKc">£10.50</div> or >10.50</div>
+            # Content might have currency symbol
+            
+            matches = re.findall(r'class="YMlKec fxKbKc">([^<]+)</div>', content)
+            if matches:
+                 raw_price = matches[0]
+                 # Cleanup: Remove currency symbols ($, £, etc) and commas
+                 clean = raw_price.replace('$', '').replace('£', '').replace(',', '').replace('GBX', '').strip()
+                 return float(clean)
+                 
+        except Exception as e:
+            logger.warning(f"Google Finance scrape failed for {symbol}: {e}")
+        return None
+
     def get_multiple_prices(self, symbols: List[str]) -> Dict[str, float]:
         """Fetch prices for multiple symbols"""
         prices = {}
