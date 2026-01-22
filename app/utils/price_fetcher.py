@@ -473,25 +473,36 @@ class PriceFetcher:
             }
             response = requests.get(url, headers=headers, timeout=5)
             if response.status_code == 200:
-                # Regex for <div class="YMlKec fxKbKc">0.7925</div>
+                # Try specific class first: <div class="YMlKec fxKbKc">0.7925</div>
                 matches = re.findall(r'class="YMlKec fxKbKc">([^<]+)</div>', response.text)
                 if matches:
-                    val = matches[0].replace(',', '').strip()
-                    return float(val)
+                    return float(matches[0].replace(',', '').strip())
+                
+                # Fallback Regex: Look for pattern "1 USD =" ... "0.7410 GBP" or similar structure
+                # Or look for "data-last-price" attribute if available (often not in SSR)
+                # Let's try searching for the value directly if it follows "1 USD ="
+                # But that's hard. Let's try a broader class search.
+                broad_matches = re.findall(r'>(\d+\.\d{4,})<', response.text)
+                # Filter for reasonable FX range (0.5 to 1.0)
+                for m in broad_matches:
+                    val = float(m)
+                    if 0.5 < val < 1.0:
+                        return val
+                        
         except Exception as e:
             logger.warning(f"Google Currency scrape failed: {e}")
         return None
 
     def get_usd_to_gbp_rate(self) -> float:
         """Get current USD to GBP rate"""
-        # Cache check (1 hour)
+        # Cache check (15 mins)
         if (self.usd_to_gbp_rate and self.last_rate_update and 
-            (datetime.now() - self.last_rate_update).seconds < 3600):
+            (datetime.now() - self.last_rate_update).seconds < 900):
             return self.usd_to_gbp_rate
             
         rate = None
         
-        # 1. Google Finance (Primary - proved more reliable for FX currently)
+        # 1. Google Finance (Primary)
         rate = self.scrape_google_currency()
 
         # 2. Yahoo Finance (Backup)
@@ -514,7 +525,13 @@ class PriceFetcher:
 
         # 3. Static Fallback
         if not rate:
-            rate = 0.79 
+            rate = 0.75 # Updated to roughly 1.33 USD/GBP 
+            
+        # Update Cache
+        self.usd_to_gbp_rate = rate
+        self.last_rate_update = datetime.now()
+        
+        return rate 
             
         # Update Cache
         self.usd_to_gbp_rate = rate
