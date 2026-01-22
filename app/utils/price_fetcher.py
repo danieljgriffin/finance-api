@@ -200,26 +200,31 @@ class PriceFetcher:
             # Method 3: Google Finance Fallback (If Yahoo Failed)
             if price is None:
                 # logger.info(f"PriceFetcher: Yahoo failed for {symbol}, trying Google Finance...")
-                price = self.scrape_google_finance(symbol)
-                if price:
-                    # Assume currency based on symbol logic or just take raw for now
-                    if symbol.endswith('.L'): currency = 'GBp' # Google usually gives Pence for UK but we need to check
-                    # Actually Google gave "GBX 1,245" for RR.L which matches Yahoo.
-                    # But my logic strips GBX. 
-                    # If it was > 500, we treat as Pence in normalization below
-                    pass 
+                result = self.scrape_google_finance(symbol)
+                if result:
+                    price, detected_currency = result
+                    if detected_currency:
+                        currency = detected_currency
+                    elif symbol.endswith('.L'): 
+                         # Fallback if Google gave just number without currency symbol
+                         # Heuristic: If > 500, assume Pence (GBp)
+                         # VUAG.L (98.0) -> GBP (Don't divide)
+                         # RR.L (1250) -> GBp (Divide)
+                         if float(price) > 500:
+                             currency = 'GBp'
+                         else:
+                             currency = 'GBP'
 
             # Process Price
             if price is not None:
                 final_price = float(price)
                 
                 # Normalization
-                # If Google gave 1245 for RR.L, and we think it's GBp, we divide by 100 -> 12.45
-                if currency == 'GBp' or currency == 'GBX' or (symbol.endswith('.L') and final_price > 500): 
-                    if currency in ['GBp', 'GBX']:
-                        final_price = final_price / 100
-                    else:
-                        final_price = final_price / 100
+                if currency == 'GBp' or currency == 'GBX': 
+                    final_price = final_price / 100
+                elif symbol.endswith('.L') and final_price > 500 and currency != 'GBP':
+                     # Catch-all for UK stocks that look like Pence but currency wasn't set to GBP explicitly
+                     final_price = final_price / 100
                     
                 if currency == 'USD':
                     final_price = self.convert_usd_to_gbp(final_price)
@@ -363,8 +368,8 @@ class PriceFetcher:
              pass
         return None
     
-    def scrape_google_finance(self, symbol: str) -> Optional[float]:
-        """Scrape price from Google Finance fallback"""
+    def scrape_google_finance(self, symbol: str) -> Optional[tuple]:
+        """Scrape price from Google Finance fallback. Returns (price, currency_code)"""
         try:
             # Simple header to look like browser
             headers = {
@@ -401,10 +406,21 @@ class PriceFetcher:
             
             matches = re.findall(r'class="YMlKec fxKbKc">([^<]+)</div>', content)
             if matches:
-                 raw_price = matches[0]
+                 raw_text = matches[0]
+                 # Detect currency
+                 currency = None
+                 if 'GBX' in raw_text:
+                     currency = 'GBX'
+                 elif '£' in raw_text:
+                     currency = 'GBP'
+                 elif '$' in raw_text:
+                     currency = 'USD'
+                 elif '€' in raw_text:
+                     currency = 'EUR'
+                     
                  # Cleanup: Remove currency symbols ($, £, etc) and commas
-                 clean = raw_price.replace('$', '').replace('£', '').replace(',', '').replace('GBX', '').strip()
-                 return float(clean)
+                 clean = raw_text.replace('$', '').replace('£', '').replace(',', '').replace('GBX', '').strip()
+                 return (float(clean), currency)
                  
         except Exception as e:
             logger.warning(f"Google Finance scrape failed for {symbol}: {e}")
