@@ -147,12 +147,18 @@ class PriceFetcher:
                     return cached['price']
 
             # Crypto
+            is_crypto = False
             clean_symbol = symbol.replace('-USD', '').upper()
             if clean_symbol in self.crypto_mappings:
+                is_crypto = True
                 price = self.get_crypto_price_from_coingecko(symbol)
                 if price:
                     self._PRICE_CACHE[symbol] = {'price': price, 'time': now}
                     return price
+                
+                # If CoinGecko failed, enforce -USD suffix for fallbacks
+                if not symbol.endswith('-USD'):
+                    symbol = f"{clean_symbol}-USD"
             
             # Special funds
             if symbol in self.special_funds:
