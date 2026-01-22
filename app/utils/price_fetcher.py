@@ -463,23 +463,64 @@ class PriceFetcher:
         await asyncio.gather(*(fetch_with_sem(s) for s in symbols))
         return prices
     
+    def scrape_google_currency(self) -> Optional[float]:
+        """Scrape USD to GBP rate from Google Finance"""
+        try:
+            # URL for USD to GBP
+            url = "https://www.google.com/finance/quote/USD-GBP"
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+            response = requests.get(url, headers=headers, timeout=5)
+            if response.status_code == 200:
+                # Regex for <div class="YMlKec fxKbKc">0.7925</div>
+                matches = re.findall(r'class="YMlKec fxKbKc">([^<]+)</div>', response.text)
+                if matches:
+                    val = matches[0].replace(',', '').strip()
+                    return float(val)
+        except Exception as e:
+            logger.warning(f"Google Currency scrape failed: {e}")
+        return None
+
     def get_usd_to_gbp_rate(self) -> float:
         """Get current USD to GBP rate"""
+        # Cache check (1 hour)
         if (self.usd_to_gbp_rate and self.last_rate_update and 
             (datetime.now() - self.last_rate_update).seconds < 3600):
             return self.usd_to_gbp_rate
             
-        try:
-            ticker = yf.Ticker('GBPUSD=X')
-            hist = ticker.history(period='1d')
-            if not hist.empty:
-                 rate = 1 / float(hist['Close'].iloc[-1])
-                 self.usd_to_gbp_rate = rate
-                 self.last_rate_update = datetime.now()
-                 return rate
-        except Exception:
-            pass
-        return 0.79 # Fallback
+        rate = None
+        
+        # 1. Google Finance (Primary - proved more reliable for FX currently)
+        rate = self.scrape_google_currency()
+
+        # 2. Yahoo Finance (Backup)
+        if not rate:
+            try:
+                # Try Direct Pair
+                ticker = yf.Ticker('USDGBP=X') 
+                price = ticker.fast_info.last_price
+                if price and price > 0.5:
+                    rate = float(price)
+                else:
+                    # Fallback to Inverse
+                    ticker = yf.Ticker('GBPUSD=X')
+                    hist = ticker.history(period='1d')
+                    if not hist.empty:
+                        rate = 1 / float(hist['Close'].iloc[-1])
+            except Exception as e:
+                # logger.warning(f"Yahoo FX failed: {e}")
+                pass
+
+        # 3. Static Fallback
+        if not rate:
+            rate = 0.79 
+            
+        # Update Cache
+        self.usd_to_gbp_rate = rate
+        self.last_rate_update = datetime.now()
+        
+        return rate
 
     def convert_usd_to_gbp(self, usd_price: float) -> Optional[float]:
         rate = self.get_usd_to_gbp_rate()
