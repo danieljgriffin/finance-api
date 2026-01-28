@@ -147,17 +147,34 @@ async def import_trading212(
     user_id: int = Depends(get_current_user_id)
 ):
     """Import investments from Trading212 and save credentials for auto-sync"""
+    import logging
+    import traceback
+    logger = logging.getLogger(__name__)
+    
+    logger.info(f"T212 Import: Starting for user {user_id}")
+    logger.info(f"T212 Import: API Key length={len(request.api_key_id)}, Secret length={len(request.api_secret_key)}")
+    
     holdings_service = HoldingsService(db, user_id)
     try:
         # First, sync investments (this validates the credentials work)
+        logger.info("T212 Import: Calling sync_trading212_investments...")
         result = await holdings_service.sync_trading212_investments(request.api_key_id, request.api_secret_key)
         
         # If sync succeeded, ALWAYS save credentials for auto-sync
+        logger.info("T212 Import: Sync succeeded, saving credentials...")
         holdings_service.save_trading212_credentials(request.api_key_id, request.api_secret_key)
         
+        logger.info(f"T212 Import: Complete! Result: {result}")
         return result
-    except Exception as e:
+    except ValueError as e:
+        # Expected errors (auth failures, rate limits)
+        logger.error(f"T212 Import: ValueError - {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        # Unexpected errors - log full traceback
+        logger.error(f"T212 Import: Unexpected error - {str(e)}")
+        logger.error(f"T212 Import: Traceback - {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
 class T212Config(BaseModel):
     api_key_id: str
