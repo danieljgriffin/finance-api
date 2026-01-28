@@ -625,6 +625,21 @@ class HoldingsService:
 
             target_amount_spent = quantity * avg_price
             
+            # Use Trading212's current price if available (convert to GBP)
+            t212_current_price_raw = float(item.get('currentPrice', 0))
+            if t212_current_price_raw > 0:
+                if currency == 'USD':
+                    initial_current_price = t212_current_price_raw * usd_to_gbp
+                elif currency == 'GBX':
+                    initial_current_price = t212_current_price_raw / 100.0
+                elif currency == 'GBP' and t212_current_price_raw > 500:
+                    # Likely pence for UK stocks
+                    initial_current_price = t212_current_price_raw / 100.0
+                else:
+                    initial_current_price = t212_current_price_raw
+            else:
+                initial_current_price = 0
+            
             new_inv = Investment(
                 user_id=self.user_id,
                 platform=target_platform,
@@ -633,7 +648,7 @@ class HoldingsService:
                 holdings=quantity,
                 average_buy_price=avg_price,
                 amount_spent=target_amount_spent,
-                current_price=0 
+                current_price=initial_current_price  # Use T212 price!
             )
             self.db.add(new_inv)
             added_count += 1
