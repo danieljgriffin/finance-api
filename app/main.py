@@ -140,6 +140,9 @@ async def run_scheduler():
                             holdings_service.sync_trading212_investments(creds['api_key_id'], creds['api_secret_key']),
                             timeout=300
                         )
+                        logger.info("Scheduler: Trading212 sync completed successfully")
+                    else:
+                        logger.debug("Scheduler: Skipped T212 sync (no credentials configured)")
                 except asyncio.TimeoutError:
                     logger.error("Scheduler: Trading212 sync timed out")
                 except Exception as e:

@@ -496,24 +496,28 @@ class HoldingsService:
         from app.services.trading212_service import Trading212Service
         from app.utils.price_fetcher import PriceFetcher
         import json
+        import logging
+        logger = logging.getLogger(__name__)
         
-        # DEBUG: Clear log
-        with open("debug_log.txt", "w") as f:
-            f.write(f"Starting T212 Sync at {datetime.now()}\n")
+        logger.info("T212 Sync: Starting full sync (replace mode)...")
         
         t212 = Trading212Service(api_key_id, api_secret_key)
         
         loop = asyncio.get_running_loop()
         portfolio = await loop.run_in_executor(None, t212.fetch_portfolio)
+        
+        logger.info(f"T212 Sync: Fetched {len(portfolio)} positions from Trading212 API")
 
         price_fetcher = PriceFetcher()
         
-        # 1. Clear existing Trading212 investments
+        # 1. Clear existing Trading212 investments (FULL REPLACE - not additive)
         target_platform = 'Trading212 ISA'
         deleted_count = self.db.query(Investment).filter(
             Investment.user_id == self.user_id,
             Investment.platform == target_platform
         ).delete()
+        
+        logger.info(f"T212 Sync: Deleted {deleted_count} existing investments (will replace with {len(portfolio)} new)")
         
         added_count = 0
         
@@ -636,9 +640,12 @@ class HoldingsService:
                 
         self.db.commit()
         
+        logger.info(f"T212 Sync: Committed {added_count} new investments to database")
 
         # Trigger price update
         await self.update_all_prices_async()
+        
+        logger.info(f"T212 Sync: Complete. Added {added_count}, Deleted {deleted_count}, Total now: {added_count}")
         
         return {
             "status": "success",
@@ -652,9 +659,13 @@ class HoldingsService:
         from app.utils.security import encrypt_value
         from app.models import User
         from sqlalchemy.orm.attributes import flag_modified
+        import logging
+        logger = logging.getLogger(__name__)
         
         user = self.db.query(User).filter(User.id == self.user_id).first()
-        if not user: return False
+        if not user:
+            logger.error(f"T212 Save: User {self.user_id} not found")
+            return False
         
         # Ensure we work with a copy or new dict
         prefs = dict(user.preferences) if user.preferences else {}
@@ -671,20 +682,29 @@ class HoldingsService:
         flag_modified(user, "preferences")
         
         self.db.commit()
+        logger.info(f"T212 Save: Credentials saved successfully for user {self.user_id}")
         return True
 
     def get_trading212_credentials(self) -> Optional[Dict[str, str]]:
         """Retrieve and decrypt T212 credentials"""
         from app.utils.security import decrypt_value
         from app.models import User
+        import logging
+        logger = logging.getLogger(__name__)
         
         user = self.db.query(User).filter(User.id == self.user_id).first()
-        if not user or not user.preferences: return None
+        if not user or not user.preferences:
+            logger.debug(f"T212 Creds: User {self.user_id} has no preferences")
+            return None
         
         prefs = user.preferences
         t212_config = prefs.get('trading212_sync')
         
-        if not t212_config or not t212_config.get('enabled'):
+        if not t212_config:
+            logger.debug("T212 Creds: No trading212_sync config found")
+            return None
+        if not t212_config.get('enabled'):
+            logger.debug("T212 Creds: Auto-sync is disabled")
             return None
             
         try:
@@ -692,12 +712,6 @@ class HoldingsService:
                 "api_key_id": decrypt_value(t212_config.get('api_key_id_enc')),
                 "api_secret_key": decrypt_value(t212_config.get('api_secret_key_enc'))
             }
-        except Exception:
+        except Exception as e:
+            logger.error(f"T212 Creds: Decryption failed: {e}")
             return None
-        
-        return {
-            "status": "success", 
-            "added": added_count,
-            "deleted": deleted_count,
-            "total_synced": len(portfolio)
-        }
