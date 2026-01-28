@@ -139,7 +139,6 @@ from pydantic import BaseModel
 class Trading212ImportRequest(BaseModel):
     api_key_id: str
     api_secret_key: str
-    save_credentials: bool = False
 
 @router.post("/import/trading212")
 async def import_trading212(
@@ -147,15 +146,16 @@ async def import_trading212(
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user_id)
 ):
-    """Import investments from Trading212"""
+    """Import investments from Trading212 and save credentials for auto-sync"""
     holdings_service = HoldingsService(db, user_id)
     try:
-        # Save if requested
-        if request.save_credentials:
-            holdings_service.save_trading212_credentials(request.api_key_id, request.api_secret_key)
-            
-        # Pass both keys for robust auth
-        return await holdings_service.sync_trading212_investments(request.api_key_id, request.api_secret_key)
+        # First, sync investments (this validates the credentials work)
+        result = await holdings_service.sync_trading212_investments(request.api_key_id, request.api_secret_key)
+        
+        # If sync succeeded, ALWAYS save credentials for auto-sync
+        holdings_service.save_trading212_credentials(request.api_key_id, request.api_secret_key)
+        
+        return result
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

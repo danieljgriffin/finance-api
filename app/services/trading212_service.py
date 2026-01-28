@@ -28,6 +28,8 @@ class Trading212Service:
         credentials = f"{self.api_key_id}:{self.api_secret_key}"
         encoded_creds = base64.b64encode(credentials.encode('utf-8')).decode('utf-8')
         auth_header = f"Basic {encoded_creds}"
+        
+        logging.info(f"T212 Auth: API Key length={len(self.api_key_id)}, Secret length={len(self.api_secret_key)}")
 
         last_exception = None
 
@@ -37,21 +39,36 @@ class Trading212Service:
             try:
                 headers = {**self.base_headers, "Authorization": auth_header}
                 
-                logging.info(f"Attempting Basic Auth connection to {url_base}...")
+                logging.info(f"T212: Attempting connection to {url_base}...")
                 response = requests.get(endpoint, headers=headers, timeout=10)
                 
+                logging.info(f"T212: Response status={response.status_code}")
+                
                 if response.status_code == 200:
-                    logging.info(f"Connected to T212 via {url_base} [SUCCESS]")
-                    return response.json()
+                    data = response.json()
+                    logging.info(f"T212: SUCCESS! Received {len(data)} positions")
+                    return data
                 elif response.status_code == 429:
-                    logging.error(f"Rate Limit Hit: {response.text}")
+                    logging.error(f"T212: Rate Limit Hit: {response.text}")
                     raise ValueError("Rate limit exceeded. Try again later.")
+                elif response.status_code == 401:
+                    logging.error(f"T212: UNAUTHORIZED (401) - Check API Key and Secret")
+                    logging.error(f"T212: Response body: {response.text}")
+                elif response.status_code == 403:
+                    logging.error(f"T212: FORBIDDEN (403) - Check API permissions (Portfolio must be enabled)")
+                    logging.error(f"T212: Response body: {response.text}")
                 else:
-                    logging.warning(f"Failed Basic Auth attempt ({url_base}) -> Status={response.status_code} Body={response.text}")
+                    logging.warning(f"T212: Failed ({url_base}) -> Status={response.status_code} Body={response.text}")
                     
+            except requests.exceptions.Timeout:
+                logging.error(f"T212: Connection timeout to {url_base}")
+                last_exception = Exception("Connection timeout")
+            except requests.exceptions.ConnectionError as e:
+                logging.error(f"T212: Connection error to {url_base}: {e}")
+                last_exception = e
             except Exception as e:
                 last_exception = e
-                logging.warning(f"Connection error ({url_base}): {e}")
+                logging.warning(f"T212: Error ({url_base}): {e}")
 
         # If we get here, nothing worked
         msg = f"Failed to connect to Trading212 (Status 401/403). Please verify your API Key ID and Secret Key are correct."
