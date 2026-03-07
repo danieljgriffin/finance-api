@@ -492,14 +492,22 @@ class HoldingsService:
             return default
 
     async def sync_trading212_investments(self, api_key_id: str, api_secret_key: str) -> Dict[str, Any]:
-        """Import/Sync investments from Trading212 (Full Replace)"""
+        """Sync investments from Trading212 using smart upsert.
+        
+        Compares incoming T212 positions against existing DB records:
+        - Existing + changed → update position data (holdings, cost) only
+        - New position → insert with T212-converted price as initial value
+        - Sold position (in DB but not in T212) → delete
+        
+        Does NOT touch current_price for existing investments — that is 
+        managed solely by update_all_prices_async() in the scheduler.
+        """
         from app.services.trading212_service import Trading212Service
         from app.utils.price_fetcher import PriceFetcher
-        import json
         import logging
         logger = logging.getLogger(__name__)
         
-        logger.info("T212 Sync: Starting full sync (replace mode)...")
+        logger.info("T212 Sync: Starting upsert sync...")
         
         t212 = Trading212Service(api_key_id, api_secret_key)
         
@@ -509,23 +517,26 @@ class HoldingsService:
         logger.info(f"T212 Sync: Fetched {len(portfolio)} positions from Trading212 API")
 
         price_fetcher = PriceFetcher()
-        
-        # 1. Clear existing Trading212 investments (FULL REPLACE - not additive)
         target_platform = 'Trading212 ISA'
-        deleted_count = self.db.query(Investment).filter(
+        
+        # 1. Load existing T212 investments into a lookup by symbol
+        existing_investments = self.db.query(Investment).filter(
             Investment.user_id == self.user_id,
             Investment.platform == target_platform
-        ).delete()
+        ).all()
         
-        logger.info(f"T212 Sync: Deleted {deleted_count} existing investments (will replace with {len(portfolio)} new)")
+        existing_by_symbol = {inv.symbol: inv for inv in existing_investments if inv.symbol}
+        logger.info(f"T212 Sync: Found {len(existing_investments)} existing investments in DB")
         
-        added_count = 0
-        
-        # Prefetch rates if possible, or fetch on demand
+        # Prefetch FX rate
         usd_to_gbp = price_fetcher.get_usd_to_gbp_rate()
+        logger.info(f"T212 Sync: USD to GBP rate: {usd_to_gbp}")
         
-        with open("debug_log.txt", "a") as f:
-             f.write(f"USD to GBP Rate: {usd_to_gbp}\n")
+        # Track which symbols came from T212 (to detect sold positions later)
+        incoming_symbols = set()
+        added_count = 0
+        updated_count = 0
+        unchanged_count = 0
         
         for item in portfolio:
             raw_ticker = item.get('ticker', '')
@@ -533,14 +544,12 @@ class HoldingsService:
             avg_price = float(item.get('averagePrice', 0))
             currency = item.get('currency', '').upper()
             
-            with open("debug_log.txt", "a") as f:
-                f.write(f"Item: {raw_ticker} | Cur: '{currency}' | AvgPrice: {avg_price} | Raw: {json.dumps(item)}\n")
-            
             # Step 1: Normalize (NVDA_US_EQ -> NVDA)
             normalized_symbol = self.normalize_trading212_ticker(raw_ticker)
             
             # Step 2: Remap (FB -> META)
             final_symbol = self.remap_ticker(normalized_symbol)
+            incoming_symbols.add(final_symbol)
             
             # Step 3: Get Name (Dynamic Lookup)
             fallback_name = item.get('name') or final_symbol
@@ -550,122 +559,107 @@ class HoldingsService:
             if not currency:
                 if raw_ticker.endswith('_US_EQ'):
                     currency = 'USD'
-                elif raw_ticker.endswith('_EQ') or final_symbol.endswith('.L'):
-                    # Likely UK -> Default to 'GBX' (Pence) check logic later or set as 'GBX' if price high
-                    # But let's set a temporary flag or just handle in the main logic below if I restructure it.
-                    # Simplest: Just set currency='GBX' if it looks like UK and price is high, or 'GBP' otherwise.
-                    # Actually, let's just use the existing blocks.
-                    pass
 
-            with open("debug_log.txt", "a") as f:
-                f.write(f"  -> Inferred Currency: '{currency}'\n")
-
-            # Step 4: Currency Conversion
-            # Option 1: Profit-First Reverse Engineer for USD (captures historic FX)
-            
+            # Step 4: Currency Conversion for average_buy_price / amount_spent
             if currency == 'USD':
-                # Formula: Cost_GBP = (CurrentVal_USD * Rate) - PPL_GBP
-                # Avg_GBP = Cost_GBP / Quantity
-                
-                # Use current price from T212 to match their PPL calculation context
                 t212_current_price = float(item.get('currentPrice', 0))
-                # PPL is total profit in account currency (GBP)
                 t212_ppl = float(item.get('ppl', 0))
                 
                 if quantity > 0 and t212_current_price > 0:
                     current_val_gbp = (quantity * t212_current_price) * usd_to_gbp
                     total_cost_gbp = current_val_gbp - t212_ppl
-                    calculated_avg = total_cost_gbp / quantity
-                    
-                    with open("debug_log.txt", "a") as f:
-                        f.write(f"  -> Profit-Based Calc: (Val {current_val_gbp:.2f} - PPL {t212_ppl}) / Qty {quantity} = {calculated_avg:.2f}\n")
-                    
-                    avg_price = calculated_avg
+                    avg_price = total_cost_gbp / quantity
                 else:
-                    # Fallback if missing data
                     avg_price = avg_price * usd_to_gbp
             
             elif currency in ['GBX', 'GBP'] or (not currency and (raw_ticker.endswith('_EQ') or final_symbol.endswith('.L'))):
-                # Handle Pence vs Pounds
-                # T212 often returns UK stocks in Pence (GBX) but labels as GBP sometimes?
-                # Heuristic: if currency is GBX OR (currency is GBP and price is suspiciously high > 500p)
-                
                 if currency == 'GBX':
                     avg_price = avg_price / 100.0
-                    with open("debug_log.txt", "a") as f:
-                        f.write(f"  -> Converted GBX to GBP {avg_price}\n")
                 elif currency == 'GBP':
-                    # Sometimes T212 might say GBP but send pence? 
-                    # Let's rely on magnitude heuristic for UK stocks if no clear GBX 
-                    # (Rolls Royce ~650 -> 6.50)
                     if avg_price > 500:
                          avg_price = avg_price / 100.0
-                         with open("debug_log.txt", "a") as f:
-                            f.write(f"  -> Converted GBP(Pence) to GBP {avg_price}\n")
                 else: 
-                     # No explicit currency but looks like UK (suffix or .L)
-                     # Fallback heuristic
                      if avg_price > 500:
                           avg_price = avg_price / 100.0
-                          with open("debug_log.txt", "a") as f:
-                                f.write(f"  -> Fallback Converted UK Pence to GBP {avg_price}\n")
             
             elif currency == 'EUR':
-                # Optional: Add EUR support if needed
-                # For now, treat as 1:0.83 (approx) or fetch rate?
-                # Let's just log warning and leave as is for now to avoid breaking
                 pass
             
-            # Fallback for weird cases: if no currency, rely on symbol
             elif not currency:
                  if final_symbol.endswith('.L') and avg_price > 500:
                       avg_price = avg_price / 100.0
-                      with open("debug_log.txt", "a") as f:
-                            f.write(f"  -> Fallback Converted Pence to GBP {avg_price}\n")
 
             target_amount_spent = quantity * avg_price
             
-            # Use Trading212's current price if available (convert to GBP)
-            t212_current_price_raw = float(item.get('currentPrice', 0))
-            if t212_current_price_raw > 0:
-                if currency == 'USD':
-                    initial_current_price = t212_current_price_raw * usd_to_gbp
-                elif currency == 'GBX':
-                    initial_current_price = t212_current_price_raw / 100.0
-                elif currency == 'GBP' and t212_current_price_raw > 500:
-                    # Likely pence for UK stocks
-                    initial_current_price = t212_current_price_raw / 100.0
-                else:
-                    initial_current_price = t212_current_price_raw
-            else:
-                initial_current_price = 0
+            # Step 5: Check if this investment already exists in our DB
+            existing = existing_by_symbol.get(final_symbol)
             
-            new_inv = Investment(
-                user_id=self.user_id,
-                platform=target_platform,
-                name=company_name, 
-                symbol=final_symbol,
-                holdings=quantity,
-                average_buy_price=avg_price,
-                amount_spent=target_amount_spent,
-                current_price=initial_current_price  # Use T212 price!
-            )
-            self.db.add(new_inv)
-            added_count += 1
+            if existing:
+                # Compare position data — has anything actually changed?
+                holdings_changed = abs(existing.holdings - quantity) > 0.0001
+                cost_changed = abs(existing.amount_spent - target_amount_spent) > 0.01
+                
+                if holdings_changed or cost_changed:
+                    # Update position data only — leave current_price untouched
+                    existing.holdings = quantity
+                    existing.average_buy_price = avg_price
+                    existing.amount_spent = target_amount_spent
+                    existing.name = company_name
+                    existing.last_updated = datetime.utcnow()
+                    updated_count += 1
+                    logger.info(f"T212 Sync: Updated {final_symbol} (holdings: {existing.holdings}->{quantity})")
+                else:
+                    unchanged_count += 1
+            else:
+                # New position — insert with T212-converted price as initial value
+                t212_current_price_raw = float(item.get('currentPrice', 0))
+                initial_current_price = 0
+                if t212_current_price_raw > 0:
+                    if currency == 'USD':
+                        initial_current_price = t212_current_price_raw * usd_to_gbp
+                    elif currency == 'GBX':
+                        initial_current_price = t212_current_price_raw / 100.0
+                    elif currency == 'GBP' and t212_current_price_raw > 500:
+                        initial_current_price = t212_current_price_raw / 100.0
+                    else:
+                        initial_current_price = t212_current_price_raw
+                
+                new_inv = Investment(
+                    user_id=self.user_id,
+                    platform=target_platform,
+                    name=company_name, 
+                    symbol=final_symbol,
+                    holdings=quantity,
+                    average_buy_price=avg_price,
+                    amount_spent=target_amount_spent,
+                    current_price=initial_current_price
+                )
+                self.db.add(new_inv)
+                added_count += 1
+                logger.info(f"T212 Sync: Added new position {final_symbol}")
+        
+        # 6. Delete positions that are in our DB but NOT in T212 (user sold them)
+        deleted_count = 0
+        for symbol, inv in existing_by_symbol.items():
+            if symbol not in incoming_symbols:
+                logger.info(f"T212 Sync: Removing sold position {symbol}")
+                self.db.delete(inv)
+                deleted_count += 1
                 
         self.db.commit()
         
-        logger.info(f"T212 Sync: Committed {added_count} new investments to database")
-
-        # Trigger price update
-        await self.update_all_prices_async()
-        
-        logger.info(f"T212 Sync: Complete. Added {added_count}, Deleted {deleted_count}, Total now: {added_count}")
+        logger.info(
+            f"T212 Sync: Complete. "
+            f"Added={added_count}, Updated={updated_count}, "
+            f"Unchanged={unchanged_count}, Deleted={deleted_count}"
+        )
         
         return {
             "status": "success",
-            "message": f"Synced {len(portfolio)} investments from Trading212",
+            "message": f"Synced {len(portfolio)} positions from Trading212",
             "added": added_count,
+            "updated": updated_count,
+            "unchanged": unchanged_count,
             "deleted": deleted_count
         }
 
