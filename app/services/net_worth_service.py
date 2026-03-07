@@ -343,47 +343,18 @@ class NetWorthService:
                 data = self._sample_data(data, timedelta(days=1))
                 
             return data
-        
-        # --- YTD: Hybrid approach ---
-        if period == 'YTD':
-            jan1 = datetime(now.year, 1, 1)
-            
-            # Try high-frequency snapshots first
-            snapshots = self.db.query(NetWorthSnapshot).filter(
-                NetWorthSnapshot.user_id == self.user_id,
-                NetWorthSnapshot.timestamp >= jan1
-            ).order_by(NetWorthSnapshot.timestamp.asc()).all()
-            
-            if len(snapshots) >= 5:
-                data = [{
-                    "date": s.timestamp.isoformat(),
-                    "value": s.total_amount,
-                    "platform_breakdown": s.assets_breakdown
-                } for s in snapshots]
-                if len(data) > 60:
-                    data = self._sample_data(data, timedelta(days=1))
-                return data
-            
-            # Fall back to monthly records for the current year
-            jan1_date = jan1.date()
-            records = self.db.query(MonthlyFinancialRecord).filter(
-                MonthlyFinancialRecord.user_id == self.user_id,
-                MonthlyFinancialRecord.period_date >= jan1_date
-            ).order_by(MonthlyFinancialRecord.period_date.asc()).all()
-            
-            return [{
-                "date": r.period_date.strftime("%Y-%m-%d"),
-                "value": r.net_worth,
-                "platform_breakdown": r.details
-            } for r in records]
 
         # --- Low Frequency / Monthly DB Source ---
-        # 6M, 1Y, MAX
-        months_lookback = 12 # Default 1Y
-        if period == '6M': months_lookback = 6
-        elif period == 'MAX': months_lookback = 1200 # 100 years
-        
-        start_date = (now - timedelta(days=months_lookback * 30)).date()
+        # YTD, 6M, 1Y, MAX
+        if period == 'YTD':
+            start_date = datetime(now.year, 1, 1).date()
+        elif period == '6M':
+            start_date = (now - timedelta(days=180)).date()
+        elif period == 'MAX':
+            start_date = (now - timedelta(days=1200 * 30)).date()
+        else:
+            # Default 1Y
+            start_date = (now - timedelta(days=365)).date()
         
         records = self.db.query(MonthlyFinancialRecord).filter(
             MonthlyFinancialRecord.user_id == self.user_id,
