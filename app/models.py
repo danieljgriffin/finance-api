@@ -16,10 +16,7 @@ class User(Base):
     investments = relationship("Investment", back_populates="user")
     platform_cash = relationship("PlatformCash", back_populates="user")
     monthly_financial_records = relationship("MonthlyFinancialRecord", back_populates="user")
-    expenses = relationship("Expense", back_populates="user")
-    monthly_commitments = relationship("MonthlyCommitment", back_populates="user")
     income_data = relationship("IncomeData", back_populates="user")
-    monthly_breakdown = relationship("MonthlyBreakdown", back_populates="user")
     monthly_investments = relationship("MonthlyInvestment", back_populates="user")
     goals = relationship("Goal", back_populates="user")
     net_worth_snapshots = relationship("NetWorthSnapshot", back_populates="user")
@@ -112,46 +109,6 @@ class MonthlyFinancialRecord(Base):
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
 
-class Expense(Base):
-    __tablename__ = 'expenses'
-    
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    name = Column(String(200), nullable=False)
-    monthly_amount = Column(Float, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    user = relationship("User", back_populates="expenses")
-    
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'name': self.name,
-            'monthly_amount': self.monthly_amount,
-            'created_at': self.created_at.isoformat() if self.created_at else None
-        }
-
-class MonthlyCommitment(Base):
-    __tablename__ = 'monthly_commitments'
-    
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    platform = Column(String(100), nullable=False)
-    name = Column(String(200), nullable=False)
-    monthly_amount = Column(Float, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    user = relationship("User", back_populates="monthly_commitments")
-    
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'platform': self.platform,
-            'name': self.name,
-            'monthly_amount': self.monthly_amount,
-            'created_at': self.created_at.isoformat() if self.created_at else None
-        }
-
 class IncomeData(Base):
     __tablename__ = 'income_data'
     
@@ -173,22 +130,6 @@ class IncomeData(Base):
             'income': self.income,
             'investment': self.investment,
             'created_at': self.created_at.isoformat() if self.created_at else None
-        }
-
-class MonthlyBreakdown(Base):
-    __tablename__ = 'monthly_breakdown'
-    
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    monthly_income = Column(Float, default=0.0)
-    last_updated = Column(DateTime, default=datetime.utcnow)
-
-    user = relationship("User", back_populates="monthly_breakdown")
-    
-    def to_dict(self):
-        return {
-            'monthly_income': self.monthly_income,
-            'last_updated': self.last_updated.isoformat() if self.last_updated else None
         }
 
 class MonthlyInvestment(Base):

@@ -99,21 +99,7 @@ class Goal(GoalBase):
     class Config:
         from_attributes = True
 
-# Cashflow Schemas
-class ExpenseBase(BaseModel):
-    name: str
-    monthly_amount: float
-
-class ExpenseCreate(ExpenseBase):
-    pass
-
-class Expense(ExpenseBase):
-    id: int
-    created_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
-
+# Income Schemas
 class IncomeDataBase(BaseModel):
     year: str
     income: float = 0.0

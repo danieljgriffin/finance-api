@@ -3,36 +3,13 @@ from sqlalchemy.orm import Session
 from typing import List, Dict
 from app.database import get_db
 from app.dependencies import get_current_user_id
-from app.models import Expense, IncomeData
-from app.schemas import ExpenseCreate, Expense as ExpenseSchema, IncomeData as IncomeDataSchema
+from app.models import IncomeData
+from app.schemas import IncomeData as IncomeDataSchema
 
 router = APIRouter(
     prefix="/cashflow",
     tags=["cashflow"]
 )
-
-@router.get("/expenses", response_model=List[ExpenseSchema])
-def get_expenses(
-    db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
-):
-    return db.query(Expense).filter(Expense.user_id == user_id).all()
-
-@router.post("/expenses", response_model=ExpenseSchema)
-def add_expense(
-    expense: ExpenseCreate,
-    db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
-):
-    db_expense = Expense(
-        user_id=user_id,
-        name=expense.name,
-        monthly_amount=expense.monthly_amount
-    )
-    db.add(db_expense)
-    db.commit()
-    db.refresh(db_expense)
-    return db_expense
 
 @router.get("/income", response_model=List[IncomeDataSchema])
 def get_income_data(
