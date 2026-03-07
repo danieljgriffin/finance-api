@@ -3,6 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import engine, Base
 
+# Import all models so they register with Base.metadata before create_all
+import app.models  # noqa: F401
+
 # Create tables on startup (for now, until Alembic is set up)
 if settings.ENVIRONMENT != "testing":
     Base.metadata.create_all(bind=engine)
