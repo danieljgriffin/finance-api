@@ -311,20 +311,23 @@ class NetWorthService:
         Get graph data based on period.
         Tiered Strategy:
         - 24H, 1W: NetWorthSnapshot (High frequency)
-        - 1M, 3M: NetWorthSnapshot (High frequency, maybe sampled)
+        - 1M, 3M, YTD: NetWorthSnapshot (High frequency, sampled daily)
         - 6M, 1Y, MAX: MonthlyFinancialRecord (Low frequency)
         """
         period = period.upper() if period else '1Y'
         now = datetime.utcnow()
         
         # --- High Frequency / Intraday DB Source ---
-        if period in ['24H', '1W', '1M', '3M']:
-            hours_lookback = 24
-            if period == '1W': hours_lookback = 168
-            elif period == '1M': hours_lookback = 720
-            elif period == '3M': hours_lookback = 2160
-            
-            start_time = now - timedelta(hours=hours_lookback)
+        if period in ['24H', '1W', '1M', '3M', 'YTD']:
+            if period == 'YTD':
+                # Start from January 1st of the current year
+                start_time = datetime(now.year, 1, 1)
+            else:
+                hours_lookback = 24
+                if period == '1W': hours_lookback = 168
+                elif period == '1M': hours_lookback = 720
+                elif period == '3M': hours_lookback = 2160
+                start_time = now - timedelta(hours=hours_lookback)
             
             snapshots = self.db.query(NetWorthSnapshot).filter(
                 NetWorthSnapshot.user_id == self.user_id,
@@ -340,10 +343,10 @@ class NetWorthService:
             # Sampling for longer periods to prevent sending too much data
             # 1W: ~6h
             # 1M: ~1d
-            # 3M: ~1d
+            # 3M, YTD: ~1d
             if period == '1W' and len(data) > 40:
                 data = self._sample_data(data, timedelta(hours=6))
-            elif period in ['1M', '3M'] and len(data) > 60:
+            elif period in ['1M', '3M', 'YTD'] and len(data) > 60:
                 data = self._sample_data(data, timedelta(days=1))
                 
             return data
