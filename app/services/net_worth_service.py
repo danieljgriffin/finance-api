@@ -318,16 +318,12 @@ class NetWorthService:
         now = datetime.utcnow()
         
         # --- High Frequency / Intraday DB Source ---
-        if period in ['24H', '1W', '1M', '3M', 'YTD']:
-            if period == 'YTD':
-                # Start from January 1st of the current year
-                start_time = datetime(now.year, 1, 1)
-            else:
-                hours_lookback = 24
-                if period == '1W': hours_lookback = 168
-                elif period == '1M': hours_lookback = 720
-                elif period == '3M': hours_lookback = 2160
-                start_time = now - timedelta(hours=hours_lookback)
+        if period in ['24H', '1W', '1M', '3M']:
+            hours_lookback = 24
+            if period == '1W': hours_lookback = 168
+            elif period == '1M': hours_lookback = 720
+            elif period == '3M': hours_lookback = 2160
+            start_time = now - timedelta(hours=hours_lookback)
             
             snapshots = self.db.query(NetWorthSnapshot).filter(
                 NetWorthSnapshot.user_id == self.user_id,
@@ -341,15 +337,45 @@ class NetWorthService:
             } for s in snapshots]
             
             # Sampling for longer periods to prevent sending too much data
-            # 1W: ~6h
-            # 1M: ~1d
-            # 3M, YTD: ~1d
             if period == '1W' and len(data) > 40:
                 data = self._sample_data(data, timedelta(hours=6))
-            elif period in ['1M', '3M', 'YTD'] and len(data) > 60:
+            elif period in ['1M', '3M'] and len(data) > 60:
                 data = self._sample_data(data, timedelta(days=1))
                 
             return data
+        
+        # --- YTD: Hybrid approach ---
+        if period == 'YTD':
+            jan1 = datetime(now.year, 1, 1)
+            
+            # Try high-frequency snapshots first
+            snapshots = self.db.query(NetWorthSnapshot).filter(
+                NetWorthSnapshot.user_id == self.user_id,
+                NetWorthSnapshot.timestamp >= jan1
+            ).order_by(NetWorthSnapshot.timestamp.asc()).all()
+            
+            if len(snapshots) >= 5:
+                data = [{
+                    "date": s.timestamp.isoformat(),
+                    "value": s.total_amount,
+                    "platform_breakdown": s.assets_breakdown
+                } for s in snapshots]
+                if len(data) > 60:
+                    data = self._sample_data(data, timedelta(days=1))
+                return data
+            
+            # Fall back to monthly records for the current year
+            jan1_date = jan1.date()
+            records = self.db.query(MonthlyFinancialRecord).filter(
+                MonthlyFinancialRecord.user_id == self.user_id,
+                MonthlyFinancialRecord.period_date >= jan1_date
+            ).order_by(MonthlyFinancialRecord.period_date.asc()).all()
+            
+            return [{
+                "date": r.period_date.strftime("%Y-%m-%d"),
+                "value": r.net_worth,
+                "platform_breakdown": r.details
+            } for r in records]
 
         # --- Low Frequency / Monthly DB Source ---
         # 6M, 1Y, MAX
