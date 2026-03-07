@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
-from app.models import NetWorthSnapshot
+from app.models import NetWorthSnapshot, DailyNetWorthSnapshot
 from app.services.net_worth_service import NetWorthService
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
@@ -36,6 +36,37 @@ class AnalyticsService:
         self.db.refresh(snapshot)
         
         return snapshot
+
+    def capture_daily_snapshot(self):
+        """
+        Upsert a daily net worth record for today.
+        Called on every scheduler run — creates if missing, updates if exists.
+        This ensures the daily table always has the latest value for today.
+        """
+        today = datetime.utcnow().date()
+        platform_totals = self.net_worth_service.calculate_platform_totals()
+        current_net_worth = sum(platform_totals.values())
+        
+        existing = self.db.query(DailyNetWorthSnapshot).filter(
+            DailyNetWorthSnapshot.user_id == self.user_id,
+            DailyNetWorthSnapshot.snapshot_date == today
+        ).first()
+        
+        if existing:
+            existing.total_amount = current_net_worth
+            existing.assets_breakdown = platform_totals
+            logger.info(f"Daily snapshot updated for {today}: £{current_net_worth:,.0f}")
+        else:
+            snapshot = DailyNetWorthSnapshot(
+                user_id=self.user_id,
+                snapshot_date=today,
+                total_amount=current_net_worth,
+                assets_breakdown=platform_totals
+            )
+            self.db.add(snapshot)
+            logger.info(f"Daily snapshot created for {today}: £{current_net_worth:,.0f}")
+        
+        self.db.commit()
 
     def sample_data_by_interval(self, data_list: List[NetWorthSnapshot], hours: int) -> List[NetWorthSnapshot]:
         """Sample historical data to get roughly one point per interval"""

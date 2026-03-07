@@ -23,6 +23,7 @@ class User(Base):
     monthly_investments = relationship("MonthlyInvestment", back_populates="user")
     goals = relationship("Goal", back_populates="user")
     net_worth_snapshots = relationship("NetWorthSnapshot", back_populates="user")
+    daily_net_worth_snapshots = relationship("DailyNetWorthSnapshot", back_populates="user")
 
 class Investment(Base):
     __tablename__ = 'investments'
@@ -273,6 +274,34 @@ class NetWorthSnapshot(Base):
             'total_amount': self.total_amount,
             'assets_breakdown': self.assets_breakdown,
             'currency': self.currency,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+class DailyNetWorthSnapshot(Base):
+    """
+    Stores one net worth record per day per user.
+    Populated by the scheduler, used for YTD/6M/1Y/MAX charts.
+    Provides daily-resolution data for detailed, squiggly chart lines.
+    """
+    __tablename__ = 'daily_net_worth_snapshots'
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    snapshot_date = Column(Date, nullable=False, index=True)
+    total_amount = Column(Float, nullable=False)
+    assets_breakdown = Column(JSON, nullable=False, default={})
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="daily_net_worth_snapshots")
+    
+    __table_args__ = (UniqueConstraint('user_id', 'snapshot_date', name='unique_user_daily_snapshot'),)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'snapshot_date': self.snapshot_date.isoformat() if self.snapshot_date else None,
+            'total_amount': self.total_amount,
+            'assets_breakdown': self.assets_breakdown,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
 

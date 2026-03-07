@@ -151,6 +151,7 @@ async def run_scheduler():
                 # 2. Capture the snapshot with fresh prices
                 service = AnalyticsService(db, user_id=1)
                 service.capture_snapshot()
+                service.capture_daily_snapshot()
                 service.cleanup_history()
                 
                 logger.info("Scheduler: Snapshot completed successfully")

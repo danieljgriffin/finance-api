@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from app.models import MonthlyFinancialRecord, NetWorthSnapshot
+from app.models import MonthlyFinancialRecord, NetWorthSnapshot, DailyNetWorthSnapshot
 from app.services.holdings_service import HoldingsService
 from datetime import datetime, timedelta, date
 from typing import Dict, Any, List, Optional
@@ -344,8 +344,8 @@ class NetWorthService:
                 
             return data
 
-        # --- Low Frequency / Monthly DB Source ---
-        # YTD, 6M, 1Y, MAX
+        # --- Daily Resolution DB Source ---
+        # YTD, 6M, 1Y, MAX — uses DailyNetWorthSnapshot for detailed lines
         if period == 'YTD':
             start_date = datetime(now.year, 1, 1).date()
         elif period == '6M':
@@ -356,6 +356,20 @@ class NetWorthService:
             # Default 1Y
             start_date = (now - timedelta(days=365)).date()
         
+        # Try daily snapshots first (preferred — more detail)
+        daily_records = self.db.query(DailyNetWorthSnapshot).filter(
+            DailyNetWorthSnapshot.user_id == self.user_id,
+            DailyNetWorthSnapshot.snapshot_date >= start_date
+        ).order_by(DailyNetWorthSnapshot.snapshot_date.asc()).all()
+        
+        if daily_records:
+            return [{
+                "date": r.snapshot_date.strftime("%Y-%m-%d"),
+                "value": r.total_amount,
+                "platform_breakdown": r.assets_breakdown
+            } for r in daily_records]
+        
+        # Fallback to monthly records if daily table is empty (pre-backfill)
         records = self.db.query(MonthlyFinancialRecord).filter(
             MonthlyFinancialRecord.user_id == self.user_id,
             MonthlyFinancialRecord.period_date >= start_date
