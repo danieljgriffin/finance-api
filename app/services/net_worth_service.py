@@ -344,32 +344,31 @@ class NetWorthService:
                 
             return data
 
-        # --- Daily Resolution DB Source ---
-        # YTD, 6M, 1Y, MAX — uses DailyNetWorthSnapshot for detailed lines
+        # --- YTD: Daily resolution from DailyNetWorthSnapshot ---
         if period == 'YTD':
             start_date = datetime(now.year, 1, 1).date()
-        elif period == '6M':
+            
+            daily_records = self.db.query(DailyNetWorthSnapshot).filter(
+                DailyNetWorthSnapshot.user_id == self.user_id,
+                DailyNetWorthSnapshot.snapshot_date >= start_date
+            ).order_by(DailyNetWorthSnapshot.snapshot_date.asc()).all()
+            
+            if daily_records:
+                return [{
+                    "date": r.snapshot_date.strftime("%Y-%m-%d"),
+                    "value": r.total_amount,
+                    "platform_breakdown": r.assets_breakdown
+                } for r in daily_records]
+        
+        # --- Monthly Resolution for 6M, 1Y, MAX ---
+        if period == '6M':
             start_date = (now - timedelta(days=180)).date()
         elif period == 'MAX':
             start_date = (now - timedelta(days=1200 * 30)).date()
         else:
-            # Default 1Y
+            # Default 1Y (also fallback for YTD if no daily data)
             start_date = (now - timedelta(days=365)).date()
         
-        # Try daily snapshots first (preferred — more detail)
-        daily_records = self.db.query(DailyNetWorthSnapshot).filter(
-            DailyNetWorthSnapshot.user_id == self.user_id,
-            DailyNetWorthSnapshot.snapshot_date >= start_date
-        ).order_by(DailyNetWorthSnapshot.snapshot_date.asc()).all()
-        
-        if daily_records:
-            return [{
-                "date": r.snapshot_date.strftime("%Y-%m-%d"),
-                "value": r.total_amount,
-                "platform_breakdown": r.assets_breakdown
-            } for r in daily_records]
-        
-        # Fallback to monthly records if daily table is empty (pre-backfill)
         records = self.db.query(MonthlyFinancialRecord).filter(
             MonthlyFinancialRecord.user_id == self.user_id,
             MonthlyFinancialRecord.period_date >= start_date
