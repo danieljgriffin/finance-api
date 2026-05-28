@@ -164,8 +164,28 @@ class NetWorthService:
         ).first()
         
         if not current_record:
-            month_name_str = calendar.month_name[today.month]
-            self.save_networth_snapshot(today.year, month_name_str)
+            # Get the most recent snapshot prior to this month to use as the baseline
+            prev_record = self.db.query(MonthlyFinancialRecord).filter(
+                MonthlyFinancialRecord.user_id == self.user_id,
+                MonthlyFinancialRecord.period_date < current_month_start
+            ).order_by(MonthlyFinancialRecord.period_date.desc()).first()
+            
+            if prev_record:
+                # Initialize this month's baseline with the previous month's ending values
+                # This ensures MoM changes reflect actual growth during this month,
+                # rather than initializing with today's live values which results in £0 change.
+                record = MonthlyFinancialRecord(
+                    user_id=self.user_id,
+                    period_date=current_month_start,
+                    net_worth=prev_record.net_worth,
+                    details=prev_record.details
+                )
+                self.db.add(record)
+                self.db.commit()
+            else:
+                # If there's absolutely no history, start with current values
+                month_name_str = calendar.month_name[today.month]
+                self.save_networth_snapshot(today.year, month_name_str)
 
     def get_dashboard_summary(self) -> Dict[str, Any]:
         """
@@ -187,8 +207,14 @@ class NetWorthService:
         total_networth = sum(platform_totals.values())
         
         # 2. Get comparative data points
-        # Start of Current Month Record
-        month_start_record = self.db.query(MonthlyFinancialRecord).filter(
+        # For Month Change, try to use previous month's record directly for absolute accuracy,
+        # fallback to start of current month.
+        prev_month_record = self.db.query(MonthlyFinancialRecord).filter(
+            MonthlyFinancialRecord.user_id == self.user_id,
+            MonthlyFinancialRecord.period_date < current_month_start
+        ).order_by(MonthlyFinancialRecord.period_date.desc()).first()
+        
+        month_start_record = prev_month_record or self.db.query(MonthlyFinancialRecord).filter(
             MonthlyFinancialRecord.user_id == self.user_id,
             MonthlyFinancialRecord.period_date == current_month_start
         ).first()

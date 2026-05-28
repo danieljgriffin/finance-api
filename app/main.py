@@ -94,7 +94,9 @@ scheduler_status = {
     "last_run": None,
     "last_status": "initializing", 
     "last_error": None,
-    "interval_minutes": 5
+    "interval_minutes": 5,
+    "stale_symbols": 0,
+    "last_successful_price_update": None
 }
 
 async def run_scheduler():
@@ -131,7 +133,11 @@ async def run_scheduler():
                 
                 logger.info("Scheduler: Refreshing prices...")
                 # Add timeout to prevent hanging (Increased to 300s)
-                await asyncio.wait_for(holdings_service.update_all_prices_async(), timeout=300)
+                update_result = await asyncio.wait_for(holdings_service.update_all_prices_async(), timeout=300)
+                
+                scheduler_status["stale_symbols"] = update_result.get("stale_count", 0)
+                if update_result.get("updated_count", 0) > 0:
+                    scheduler_status["last_successful_price_update"] = datetime.utcnow().isoformat()
                 
                 # Auto-sync Trading212 if credentials exist
                 try:

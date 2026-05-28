@@ -455,8 +455,18 @@ class HoldingsService:
                  updated_count += 1
                 
         self.db.commit()
-        logger.info(f"HoldingsService: Updated {updated_count} investments (Std: {len(prices_standard)}, IE: {len(prices_investengine)}).")
-        return {"status": "success", "updated_count": updated_count}
+        
+        # 4. Check for staleness
+        from datetime import timedelta
+        stale_threshold = datetime.now() - timedelta(hours=24)
+        stale_count = 0
+        for investment in investments:
+             if investment.symbol and investment.last_updated and investment.last_updated < stale_threshold:
+                  stale_count += 1
+                  logger.warning(f"HoldingsService: Price for {investment.symbol} ({investment.name}) is stale (last updated {investment.last_updated})")
+                  
+        logger.info(f"HoldingsService: Updated {updated_count} investments (Std: {len(prices_standard)}, IE: {len(prices_investengine)}). Stale: {stale_count}")
+        return {"status": "success", "updated_count": updated_count, "stale_count": stale_count}
                 
     
     def normalize_trading212_ticker(self, ticker: str) -> str:
