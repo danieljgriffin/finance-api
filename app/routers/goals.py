@@ -60,11 +60,14 @@ def update_goal(
     for key, value in updates.items():
         if key == "status":
              # If moving to completed state from non-completed
-             if value in ["ACHIEVED", "COMPLETED"] and db_goal.status not in ["ACHIEVED", "COMPLETED"]:
+             status_upper = value.upper() if isinstance(value, str) else value
+             current_status_upper = db_goal.status.upper() if isinstance(db_goal.status, str) else db_goal.status
+             
+             if status_upper in ["ACHIEVED", "COMPLETED"] and current_status_upper not in ["ACHIEVED", "COMPLETED"]:
                  if not db_goal.completed_date: # Only set if null
                      db_goal.completed_date = datetime.utcnow().date()
              # If moving back to active
-             elif value == "ACTIVE":
+             elif status_upper == "ACTIVE":
                  db_goal.completed_date = None
         
         if hasattr(db_goal, key):

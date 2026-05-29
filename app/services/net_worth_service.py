@@ -207,14 +207,8 @@ class NetWorthService:
         total_networth = sum(platform_totals.values())
         
         # 2. Get comparative data points
-        # For Month Change, try to use previous month's record directly for absolute accuracy,
-        # fallback to start of current month.
-        prev_month_record = self.db.query(MonthlyFinancialRecord).filter(
-            MonthlyFinancialRecord.user_id == self.user_id,
-            MonthlyFinancialRecord.period_date < current_month_start
-        ).order_by(MonthlyFinancialRecord.period_date.desc()).first()
-        
-        month_start_record = prev_month_record or self.db.query(MonthlyFinancialRecord).filter(
+        # For Month Change, use the snapshot taken at the start of the current month
+        month_start_record = self.db.query(MonthlyFinancialRecord).filter(
             MonthlyFinancialRecord.user_id == self.user_id,
             MonthlyFinancialRecord.period_date == current_month_start
         ).first()

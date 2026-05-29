@@ -758,3 +758,115 @@
 2026-01-22 17:25:12,949 - app.services.holdings_service - INFO - HoldingsService: Updated 31 investments (Std: 24, IE: 4).
 2026-01-22 17:25:13,619 - app.main - INFO - Scheduler: Snapshot completed successfully
 2026-01-22 17:25:13,619 - app.main - INFO - Scheduler: Waiting 287s until next 5-minute alignment...
+2026-03-26 12:31:13,366 - app.main - INFO - Scheduler: Started. Waiting for next 5-minute alignment...
+2026-03-26 12:31:13,367 - app.main - INFO - Scheduler: Waiting 227s until next 5-minute alignment...
+2026-03-26 12:33:07,805 - app.services.holdings_service - INFO - HoldingsService: Fetching LIVE prices for 24 symbols...
+2026-03-26 12:33:10,674 - app.utils.price_fetcher - INFO - Got price from FT for GB00BMN91T34: 2.2342
+2026-03-26 12:33:10,685 - app.utils.price_fetcher - INFO - Got price from FT for LU1033663649: 10.02
+2026-03-26 12:33:14,170 - app.utils.price_fetcher - INFO - Got price from FT for GB00BYVGKV59: 3.511
+2026-03-26 12:33:21,833 - app.services.holdings_service - INFO - HoldingsService: Fetching PREV CLOSE prices for 4 InvestEngine symbols...
+2026-03-26 12:33:24,150 - app.services.holdings_service - INFO - HoldingsService: Updated 31 investments (Std: 24, IE: 4).
+2026-03-26 12:35:00,369 - app.main - INFO - Scheduler: Taking aligned net worth snapshot...
+2026-03-26 12:35:00,370 - app.main - INFO - Scheduler: Refreshing prices...
+2026-03-26 12:35:00,529 - app.services.holdings_service - INFO - HoldingsService: Fetching LIVE prices for 24 symbols...
+2026-03-26 12:35:08,787 - app.services.holdings_service - INFO - HoldingsService: Fetching PREV CLOSE prices for 4 InvestEngine symbols...
+2026-03-26 12:35:11,255 - app.services.holdings_service - INFO - HoldingsService: Updated 31 investments (Std: 24, IE: 4).
+2026-03-26 12:35:11,588 - app.utils.security - ERROR - Decryption failed: 
+2026-03-26 12:35:11,588 - app.services.holdings_service - ERROR - T212 Creds: Decryption failed: 
+2026-03-26 12:35:12,122 - app.services.analytics_service - INFO - Daily snapshot updated for 2026-03-26: £115,536
+2026-03-26 12:35:12,400 - app.main - INFO - Scheduler: Snapshot completed successfully
+2026-03-26 12:35:12,400 - app.main - INFO - Scheduler: Waiting 288s until next 5-minute alignment...
+2026-03-26 12:40:00,404 - app.main - INFO - Scheduler: Taking aligned net worth snapshot...
+2026-03-26 12:40:00,406 - app.main - INFO - Scheduler: Refreshing prices...
+2026-03-26 12:40:00,669 - app.services.holdings_service - INFO - HoldingsService: Fetching LIVE prices for 24 symbols...
+2026-03-26 12:40:02,944 - app.utils.price_fetcher - INFO - Got price from FT for LU1033663649: 10.02
+2026-03-26 12:40:03,311 - app.utils.price_fetcher - INFO - Got price from FT for GB00BMN91T34: 2.2342
+2026-03-26 12:40:05,775 - app.utils.price_fetcher - INFO - Got price from FT for GB00BYVGKV59: 3.511
+2026-03-26 12:40:13,649 - app.services.holdings_service - INFO - HoldingsService: Fetching PREV CLOSE prices for 4 InvestEngine symbols...
+2026-03-26 12:40:16,276 - app.services.holdings_service - INFO - HoldingsService: Updated 31 investments (Std: 24, IE: 4).
+2026-03-26 12:40:16,443 - app.utils.security - ERROR - Decryption failed: 
+2026-03-26 12:40:16,443 - app.services.holdings_service - ERROR - T212 Creds: Decryption failed: 
+2026-03-26 12:40:17,063 - app.services.analytics_service - INFO - Daily snapshot updated for 2026-03-26: £115,486
+2026-03-26 12:40:17,388 - app.main - INFO - Scheduler: Snapshot completed successfully
+2026-03-26 12:40:17,388 - app.main - INFO - Scheduler: Waiting 283s until next 5-minute alignment...
+2026-03-26 12:45:00,391 - app.main - INFO - Scheduler: Taking aligned net worth snapshot...
+2026-03-26 12:45:00,391 - app.main - INFO - Scheduler: Refreshing prices...
+2026-03-26 12:45:00,553 - app.services.holdings_service - INFO - HoldingsService: Fetching LIVE prices for 24 symbols...
+2026-03-26 12:45:07,506 - app.services.holdings_service - INFO - HoldingsService: Fetching PREV CLOSE prices for 4 InvestEngine symbols...
+2026-03-26 12:45:09,623 - app.services.holdings_service - INFO - HoldingsService: Updated 31 investments (Std: 24, IE: 4).
+2026-03-26 12:45:09,764 - app.utils.security - ERROR - Decryption failed: 
+2026-03-26 12:45:09,764 - app.services.holdings_service - ERROR - T212 Creds: Decryption failed: 
+2026-03-26 12:45:10,355 - app.services.analytics_service - INFO - Daily snapshot updated for 2026-03-26: £115,487
+2026-03-26 12:45:10,663 - app.main - INFO - Scheduler: Snapshot completed successfully
+2026-03-26 12:45:10,664 - app.main - INFO - Scheduler: Waiting 290s until next 5-minute alignment...
+2026-03-26 12:50:00,667 - app.main - INFO - Scheduler: Taking aligned net worth snapshot...
+2026-03-26 12:50:00,667 - app.main - INFO - Scheduler: Refreshing prices...
+2026-03-26 12:50:00,885 - app.services.holdings_service - INFO - HoldingsService: Fetching LIVE prices for 24 symbols...
+2026-03-26 12:50:02,601 - app.utils.price_fetcher - INFO - Got price from FT for LU1033663649: 10.02
+2026-03-26 12:50:03,003 - app.utils.price_fetcher - INFO - Got price from FT for GB00BMN91T34: 2.2342
+2026-03-26 12:50:07,805 - app.utils.price_fetcher - INFO - Got price from FT for GB00BYVGKV59: 3.511
+2026-03-26 12:50:14,459 - app.services.holdings_service - INFO - HoldingsService: Fetching PREV CLOSE prices for 4 InvestEngine symbols...
+2026-03-26 12:50:16,972 - app.services.holdings_service - INFO - HoldingsService: Updated 31 investments (Std: 24, IE: 4).
+2026-03-26 12:50:17,144 - app.utils.security - ERROR - Decryption failed: 
+2026-03-26 12:50:17,145 - app.services.holdings_service - ERROR - T212 Creds: Decryption failed: 
+2026-03-26 12:50:17,694 - app.services.analytics_service - INFO - Daily snapshot updated for 2026-03-26: £115,511
+2026-03-26 12:50:18,014 - app.main - INFO - Scheduler: Snapshot completed successfully
+2026-03-26 12:50:18,014 - app.main - INFO - Scheduler: Waiting 282s until next 5-minute alignment...
+2026-03-26 12:55:00,017 - app.main - INFO - Scheduler: Taking aligned net worth snapshot...
+2026-03-26 12:55:00,018 - app.main - INFO - Scheduler: Refreshing prices...
+2026-03-26 12:55:00,217 - app.services.holdings_service - INFO - HoldingsService: Fetching LIVE prices for 24 symbols...
+2026-03-26 12:55:02,620 - yfinance - ERROR - $XDEW.L: possibly delisted; no price data found  (period=1y)
+2026-03-26 12:55:02,623 - yfinance - ERROR - $XDEW.L: possibly delisted; no price data found  (period=5d)
+2026-03-26 12:55:02,626 - yfinance - ERROR - $XDEW.L: possibly delisted; no price data found  (period=5d)
+2026-03-26 12:55:02,630 - app.utils.price_fetcher - WARNING - Google Finance scrape failed for XDEW.L: HTTPSConnectionPool(host='www.google.com', port=443): Max retries exceeded with url: /finance/quote/XDEW:LON (Caused by NameResolutionError("HTTPSConnection(host='www.google.com', port=443): Failed to resolve 'www.google.com' ([Errno 8] nodename nor servname provided, or not known)"))
+2026-03-26 12:55:04,933 - yfinance - ERROR - $PLTR: possibly delisted; no price data found  (period=1y)
+2026-03-26 12:55:04,934 - yfinance - ERROR - $PLTR: possibly delisted; no price data found  (period=5d)
+2026-03-26 12:55:04,935 - yfinance - ERROR - $PLTR: possibly delisted; no price data found  (period=5d)
+2026-03-26 12:55:04,936 - app.utils.price_fetcher - WARNING - Google Finance scrape failed for PLTR: HTTPSConnectionPool(host='www.google.com', port=443): Max retries exceeded with url: /finance?q=PLTR (Caused by NameResolutionError("HTTPSConnection(host='www.google.com', port=443): Failed to resolve 'www.google.com' ([Errno 8] nodename nor servname provided, or not known)"))
+2026-03-26 12:55:07,329 - yfinance - ERROR - $LLY: possibly delisted; no price data found  (period=1y)
+2026-03-26 12:55:07,331 - yfinance - ERROR - $VUSA.L: possibly delisted; no price data found  (period=1y)
+2026-03-26 12:55:07,333 - yfinance - ERROR - $NVO: possibly delisted; no price data found  (period=1y)
+2026-03-26 12:55:07,334 - yfinance - ERROR - $VUSA.L: possibly delisted; no price data found  (period=5d)
+2026-03-26 12:55:07,336 - yfinance - ERROR - $LLY: possibly delisted; no price data found  (period=5d)
+2026-03-26 12:55:07,337 - yfinance - ERROR - $VUSA.L: possibly delisted; no price data found  (period=5d)
+2026-03-26 12:55:07,339 - yfinance - ERROR - $LLY: possibly delisted; no price data found  (period=5d)
+2026-03-26 12:55:07,340 - yfinance - ERROR - $NVO: possibly delisted; no price data found  (period=5d)
+2026-03-26 12:55:07,340 - app.utils.price_fetcher - WARNING - Google Finance scrape failed for VUSA.L: HTTPSConnectionPool(host='www.google.com', port=443): Max retries exceeded with url: /finance/quote/VUSA:LON (Caused by NameResolutionError("HTTPSConnection(host='www.google.com', port=443): Failed to resolve 'www.google.com' ([Errno 8] nodename nor servname provided, or not known)"))
+2026-03-26 12:55:07,341 - app.utils.price_fetcher - WARNING - Google Finance scrape failed for LLY: HTTPSConnectionPool(host='www.google.com', port=443): Max retries exceeded with url: /finance?q=LLY (Caused by NameResolutionError("HTTPSConnection(host='www.google.com', port=443): Failed to resolve 'www.google.com' ([Errno 8] nodename nor servname provided, or not known)"))
+2026-03-26 12:55:07,342 - yfinance - ERROR - $NVO: possibly delisted; no price data found  (period=5d)
+2026-03-26 12:55:07,343 - app.utils.price_fetcher - WARNING - Google Finance scrape failed for NVO: HTTPSConnectionPool(host='www.google.com', port=443): Max retries exceeded with url: /finance?q=NVO (Caused by NameResolutionError("HTTPSConnection(host='www.google.com', port=443): Failed to resolve 'www.google.com' ([Errno 8] nodename nor servname provided, or not known)"))
+2026-03-26 12:55:08,452 - yfinance - ERROR - $META: possibly delisted; no price data found  (period=1y)
+2026-03-26 12:55:08,453 - yfinance - ERROR - $META: possibly delisted; no price data found  (period=5d)
+2026-03-26 12:55:08,454 - yfinance - ERROR - $META: possibly delisted; no price data found  (period=5d)
+2026-03-26 12:55:08,455 - app.utils.price_fetcher - WARNING - Google Finance scrape failed for META: HTTPSConnectionPool(host='www.google.com', port=443): Max retries exceeded with url: /finance?q=META (Caused by NameResolutionError("HTTPSConnection(host='www.google.com', port=443): Failed to resolve 'www.google.com' ([Errno 8] nodename nor servname provided, or not known)"))
+2026-03-26 12:55:09,338 - yfinance - ERROR - $NVDA: possibly delisted; no price data found  (period=1y)
+2026-03-26 12:55:09,339 - yfinance - ERROR - $NVDA: possibly delisted; no price data found  (period=5d)
+2026-03-26 12:55:09,340 - yfinance - ERROR - $NVDA: possibly delisted; no price data found  (period=5d)
+2026-03-26 12:55:09,340 - app.utils.price_fetcher - WARNING - Google Finance scrape failed for NVDA: HTTPSConnectionPool(host='www.google.com', port=443): Max retries exceeded with url: /finance?q=NVDA (Caused by NameResolutionError("HTTPSConnection(host='www.google.com', port=443): Failed to resolve 'www.google.com' ([Errno 8] nodename nor servname provided, or not known)"))
+2026-03-26 12:55:10,340 - yfinance - ERROR - $SOL-USD: possibly delisted; no price data found  (period=1y)
+2026-03-26 12:55:10,344 - yfinance - ERROR - $SOL-USD: possibly delisted; no price data found  (period=5d)
+2026-03-26 12:55:10,347 - yfinance - ERROR - $SOL-USD: possibly delisted; no price data found  (period=5d)
+2026-03-26 12:55:10,349 - app.utils.price_fetcher - WARNING - Google Finance scrape failed for SOL-USD: HTTPSConnectionPool(host='www.google.com', port=443): Max retries exceeded with url: /finance?q=SOL-USD (Caused by NameResolutionError("HTTPSConnection(host='www.google.com', port=443): Failed to resolve 'www.google.com' ([Errno 8] nodename nor servname provided, or not known)"))
+2026-03-26 12:55:10,814 - yfinance - ERROR - $MCD: possibly delisted; no price data found  (period=1y)
+2026-03-26 12:55:10,815 - yfinance - ERROR - $MCD: possibly delisted; no price data found  (period=5d)
+2026-03-26 12:55:10,816 - yfinance - ERROR - $MCD: possibly delisted; no price data found  (period=5d)
+2026-03-26 12:55:10,817 - app.utils.price_fetcher - WARNING - Google Finance scrape failed for MCD: HTTPSConnectionPool(host='www.google.com', port=443): Max retries exceeded with url: /finance?q=MCD (Caused by NameResolutionError("HTTPSConnection(host='www.google.com', port=443): Failed to resolve 'www.google.com' ([Errno 8] nodename nor servname provided, or not known)"))
+2026-03-26 12:55:14,333 - yfinance - ERROR - $BTC-USD: possibly delisted; no price data found  (period=1y)
+2026-03-26 12:55:14,333 - yfinance - ERROR - $BTC-USD: possibly delisted; no price data found  (period=5d)
+2026-03-26 12:55:14,334 - yfinance - ERROR - $BTC-USD: possibly delisted; no price data found  (period=5d)
+2026-03-26 12:55:14,335 - app.utils.price_fetcher - WARNING - Google Finance scrape failed for BTC-USD: HTTPSConnectionPool(host='www.google.com', port=443): Max retries exceeded with url: /finance?q=BTC-USD (Caused by NameResolutionError("HTTPSConnection(host='www.google.com', port=443): Failed to resolve 'www.google.com' ([Errno 8] nodename nor servname provided, or not known)"))
+2026-03-26 12:55:14,335 - app.services.holdings_service - INFO - HoldingsService: Fetching PREV CLOSE prices for 4 InvestEngine symbols...
+2026-03-26 12:55:15,714 - yfinance - ERROR - $CNX1.L: possibly delisted; no price data found  (period=5d)
+2026-03-26 12:55:15,716 - yfinance - ERROR - $CNX1.L: possibly delisted; no price data found  (period=5d)
+2026-03-26 12:55:15,717 - app.utils.price_fetcher - WARNING - Google Finance scrape failed for CNX1.L: HTTPSConnectionPool(host='www.google.com', port=443): Max retries exceeded with url: /finance/quote/CNX1:LON (Caused by NameResolutionError("HTTPSConnection(host='www.google.com', port=443): Failed to resolve 'www.google.com' ([Errno 8] nodename nor servname provided, or not known)"))
+2026-03-26 12:55:16,320 - yfinance - ERROR - $SGLN.L: possibly delisted; no price data found  (period=5d)
+2026-03-26 12:55:16,324 - yfinance - ERROR - $SGLN.L: possibly delisted; no price data found  (period=5d)
+2026-03-26 12:55:16,326 - app.utils.price_fetcher - WARNING - Google Finance scrape failed for SGLN.L: HTTPSConnectionPool(host='www.google.com', port=443): Max retries exceeded with url: /finance/quote/SGLN:LON (Caused by NameResolutionError("HTTPSConnection(host='www.google.com', port=443): Failed to resolve 'www.google.com' ([Errno 8] nodename nor servname provided, or not known)"))
+2026-03-26 12:55:16,674 - app.services.holdings_service - INFO - HoldingsService: Updated 17 investments (Std: 14, IE: 2).
+2026-03-26 12:55:16,675 - app.main - ERROR - Scheduler: Auto-sync failed: (psycopg2.OperationalError) could not translate host name "ep-silent-voice-abyoqoml-pooler.eu-west-2.aws.neon.tech" to address: nodename nor servname provided, or not known
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-03-26 12:55:16,676 - app.main - ERROR - Scheduler error inner: (psycopg2.OperationalError) could not translate host name "ep-silent-voice-abyoqoml-pooler.eu-west-2.aws.neon.tech" to address: nodename nor servname provided, or not known
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-03-26 12:55:16,676 - app.main - INFO - Scheduler: Waiting 284s until next 5-minute alignment...
