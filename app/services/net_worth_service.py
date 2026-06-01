@@ -154,7 +154,12 @@ class NetWorthService:
         return record
 
     def _ensure_current_month_snapshot(self):
-        """Helper: Ensure a snapshot exists for the 1st of the current month"""
+        """Helper: Ensure a snapshot exists for the 1st of the current month.
+        
+        Records the ACTUAL current portfolio values as the baseline for the month.
+        This is called lazily — on the first request after a new month starts.
+        Month-over-month changes are calculated as: live_value - month_start_baseline.
+        """
         today = date.today()
         current_month_start = date(today.year, today.month, 1)
         
@@ -164,28 +169,9 @@ class NetWorthService:
         ).first()
         
         if not current_record:
-            # Get the most recent snapshot prior to this month to use as the baseline
-            prev_record = self.db.query(MonthlyFinancialRecord).filter(
-                MonthlyFinancialRecord.user_id == self.user_id,
-                MonthlyFinancialRecord.period_date < current_month_start
-            ).order_by(MonthlyFinancialRecord.period_date.desc()).first()
-            
-            if prev_record:
-                # Initialize this month's baseline with the previous month's ending values
-                # This ensures MoM changes reflect actual growth during this month,
-                # rather than initializing with today's live values which results in £0 change.
-                record = MonthlyFinancialRecord(
-                    user_id=self.user_id,
-                    period_date=current_month_start,
-                    net_worth=prev_record.net_worth,
-                    details=prev_record.details
-                )
-                self.db.add(record)
-                self.db.commit()
-            else:
-                # If there's absolutely no history, start with current values
-                month_name_str = calendar.month_name[today.month]
-                self.save_networth_snapshot(today.year, month_name_str)
+            # Record actual current values as the baseline for this month
+            month_name_str = calendar.month_name[today.month]
+            self.save_networth_snapshot(today.year, month_name_str)
 
     def get_dashboard_summary(self) -> Dict[str, Any]:
         """
