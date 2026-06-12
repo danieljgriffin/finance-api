@@ -1,15 +1,27 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Dict
 from app.database import get_db
 from app.dependencies import get_current_user_id
 from app.services.holdings_service import HoldingsService
+from app.services.search_service import SearchService
 from app.schemas import Investment, InvestmentCreate, InvestmentUpdate, PlatformCash, PlatformCashUpdate
 
 router = APIRouter(
     prefix="/holdings",
     tags=["holdings"]
 )
+
+# Singleton search service instance (stateless except for cache)
+_search_service = SearchService()
+
+@router.get("/search")
+def search_investments(
+    q: str = Query(..., min_length=1, description="Search query (name or ticker)"),
+    limit: int = Query(15, ge=1, le=30, description="Max results to return"),
+):
+    """Search for market instruments (stocks, ETFs, funds, crypto) by name or ticker symbol"""
+    return _search_service.search(q, limit)
 
 @router.get("/", response_model=Dict[str, List[Investment]])
 def get_holdings(
