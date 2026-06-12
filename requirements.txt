@@ -13,3 +13,4 @@ yfinance>=0.2.48
 trafilatura==1.6.3
 cryptography==42.0.0
 hdwallet>=2.2.1
+cachetools

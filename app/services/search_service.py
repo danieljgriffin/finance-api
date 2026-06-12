@@ -7,9 +7,10 @@ when a user types an investment name in the Add Manual Investment modal.
 
 import logging
 import requests
-import time
+import yfinance as yf
 from typing import List, Dict, Optional
 from datetime import datetime
+from cachetools import TTLCache
 
 logger = logging.getLogger(__name__)
 
@@ -77,21 +78,8 @@ class SearchService:
     }
 
     def __init__(self):
-        # Use a session to maintain cookies (bypasses basic Yahoo Finance rate limits for datacenter IPs)
-        self.session = requests.Session()
-        self.session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        })
-        self._yahoo_cookie_fetched = False
-
-    def _ensure_yahoo_cookie(self):
-        """Fetch a session cookie from Yahoo to bypass 429 rate limits on Render/AWS"""
-        if not self._yahoo_cookie_fetched:
-            try:
-                self.session.get("https://finance.yahoo.com", timeout=10)
-                self._yahoo_cookie_fetched = True
-            except Exception as e:
-                logger.warning(f"Failed to fetch initial Yahoo cookie: {e}")
+        # Cache for search queries to avoid hitting APIs too frequently (5 minute TTL)
+        self.cache = TTLCache(maxsize=1000, ttl=300)
 
     def _get_cached(self, cache_key: str) -> Optional[List[dict]]:
         """Return cached results if still valid, else None"""
@@ -122,9 +110,6 @@ class SearchService:
             return cached
 
         results: List[SearchResult] = []
-
-        # Ensure we have a cookie before hitting Yahoo search
-        self._ensure_yahoo_cookie()
 
         # 1. Search Yahoo Finance (stocks, ETFs, funds)
         yahoo_results = self._search_yahoo(query)
@@ -163,57 +148,41 @@ class SearchService:
         return final
 
     def _search_yahoo(self, query: str) -> List[SearchResult]:
-        """Search Yahoo Finance autocomplete API for stocks, ETFs, and funds"""
-        results = []
+        """Search Yahoo Finance using yfinance.Search"""
+        results: List[SearchResult] = []
         try:
-            url = "https://query2.finance.yahoo.com/v1/finance/search"
-            params = {
-                "q": query,
-                "quotesCount": 12,
-                "newsCount": 0,
-                "listsCount": 0,
-                "enableFuzzyQuery": True,
-                "quotesQueryId": "tss_match_phrase_query",
-            }
-
-            response = self.session.get(url, params=params, timeout=5)
-
-            if response.status_code == 200:
-                data = response.json()
-                quotes = data.get("quotes", [])
-
-                for quote in quotes:
-                    symbol = quote.get("symbol", "")
-                    name = quote.get("shortname") or quote.get("longname") or quote.get("name", "")
-                    quote_type = quote.get("quoteType", "")
-                    exchange = quote.get("exchDisp") or quote.get("exchange", "")
-                    currency = quote.get("currency", "USD") if quote.get("currency") else "USD"
-
-                    # Skip options and futures — not relevant for portfolio tracking
-                    if quote_type in ("OPTION", "FUTURE"):
-                        continue
-
-                    # Map type
-                    instrument_type = self._YAHOO_TYPE_MAP.get(quote_type, "stock")
-
-                    if symbol and name:
-                        results.append(SearchResult(
-                            symbol=symbol,
-                            name=name,
-                            instrument_type=instrument_type,
-                            exchange=exchange,
-                            currency=currency,
-                        ))
-            elif response.status_code == 429:
-                logger.warning("Yahoo Finance search rate limited (even with cookie)")
-                # Force cookie refetch next time
-                self._yahoo_cookie_fetched = False
-            else:
-                logger.warning(f"Yahoo Finance search returned {response.status_code}")
-
+            search_obj = yf.Search(query, max_results=12)
+            for item in search_obj.quotes:
+                symbol = item.get("symbol")
+                if not symbol:
+                    continue
+                
+                name = item.get("longname") or item.get("shortname") or symbol
+                quote_type = item.get("quoteType", "EQUITY")
+                
+                # Map quote type to our simplified types
+                type_map = {
+                    "EQUITY": "stock",
+                    "ETF": "etf",
+                    "MUTUALFUND": "fund",
+                    "INDEX": "index",
+                    "CRYPTOCURRENCY": "crypto"
+                }
+                asset_type = type_map.get(quote_type, "stock")
+                
+                exchange = item.get("exchDisp") or item.get("exchange", "Unknown")
+                currency = item.get("currency", "USD")
+                
+                results.append(SearchResult(
+                    symbol=symbol,
+                    name=name,
+                    instrument_type=asset_type,
+                    exchange=exchange,
+                    currency=currency
+                ))
         except Exception as e:
-            logger.error(f"Yahoo Finance search failed: {e}")
-
+            logger.warning(f"Yahoo Finance search failed via yfinance: {e}")
+            
         return results
 
     def _search_crypto(self, query: str) -> List[SearchResult]:
