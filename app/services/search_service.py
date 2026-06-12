@@ -76,6 +76,23 @@ class SearchService:
         "HBAR": ("hedera-hashgraph", "Hedera"),
     }
 
+    def __init__(self):
+        # Use a session to maintain cookies (bypasses basic Yahoo Finance rate limits for datacenter IPs)
+        self.session = requests.Session()
+        self.session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        })
+        self._yahoo_cookie_fetched = False
+
+    def _ensure_yahoo_cookie(self):
+        """Fetch a session cookie from Yahoo to bypass 429 rate limits on Render/AWS"""
+        if not self._yahoo_cookie_fetched:
+            try:
+                self.session.get("https://finance.yahoo.com", timeout=10)
+                self._yahoo_cookie_fetched = True
+            except Exception as e:
+                logger.warning(f"Failed to fetch initial Yahoo cookie: {e}")
+
     def _get_cached(self, cache_key: str) -> Optional[List[dict]]:
         """Return cached results if still valid, else None"""
         cached = self._cache.get(cache_key)
@@ -105,6 +122,9 @@ class SearchService:
             return cached
 
         results: List[SearchResult] = []
+
+        # Ensure we have a cookie before hitting Yahoo search
+        self._ensure_yahoo_cookie()
 
         # 1. Search Yahoo Finance (stocks, ETFs, funds)
         yahoo_results = self._search_yahoo(query)
@@ -155,11 +175,8 @@ class SearchService:
                 "enableFuzzyQuery": True,
                 "quotesQueryId": "tss_match_phrase_query",
             }
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            }
 
-            response = requests.get(url, params=params, headers=headers, timeout=5)
+            response = self.session.get(url, params=params, timeout=5)
 
             if response.status_code == 200:
                 data = response.json()
@@ -188,7 +205,9 @@ class SearchService:
                             currency=currency,
                         ))
             elif response.status_code == 429:
-                logger.warning("Yahoo Finance search rate limited")
+                logger.warning("Yahoo Finance search rate limited (even with cookie)")
+                # Force cookie refetch next time
+                self._yahoo_cookie_fetched = False
             else:
                 logger.warning(f"Yahoo Finance search returned {response.status_code}")
 
