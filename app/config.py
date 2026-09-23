@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     API_TOKEN: str = os.getenv("PERSONAL_API_TOKEN", "dev-token-123")  # Default to dev token if missing to prevent 500s
+    ENABLE_SCHEDULER: bool = os.getenv("ENABLE_SCHEDULER", "true").lower() in {"1", "true", "yes", "on"}
+    ENABLE_REMOTE_DATA: bool = os.getenv("ENABLE_REMOTE_DATA", "false").lower() in {"1", "true", "yes", "on"}
 
     class Config:
         env_file = ".env"

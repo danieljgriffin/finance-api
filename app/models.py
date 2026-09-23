@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Date, Text, ForeignKey, UniqueConstraint, JSON, Boolean
+from sqlalchemy import Column, Integer, String, Float, DateTime, Date, Text, ForeignKey, UniqueConstraint, CheckConstraint, JSON, Boolean
 from sqlalchemy.orm import relationship, backref
 
 from datetime import datetime
@@ -18,6 +18,8 @@ class User(Base):
     monthly_financial_records = relationship("MonthlyFinancialRecord", back_populates="user")
     income_data = relationship("IncomeData", back_populates="user")
     monthly_investments = relationship("MonthlyInvestment", back_populates="user")
+    tracker_entries = relationship("TrackerEntry", back_populates="user")
+    portfolio_cash_flows = relationship("PortfolioCashFlow", back_populates="user")
     goals = relationship("Goal", back_populates="user")
     net_worth_snapshots = relationship("NetWorthSnapshot", back_populates="user")
     daily_net_worth_snapshots = relationship("DailyNetWorthSnapshot", back_populates="user")
@@ -160,6 +162,93 @@ class MonthlyInvestment(Base):
             'amount_invested': self.amount_invested,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+class TrackerEntry(Base):
+    """Dated income/investment entry used to build monthly and yearly totals."""
+    __tablename__ = 'tracker_entries'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    entry_key = Column(String(100), nullable=False)
+    income_amount = Column(Float, default=0.0, nullable=False)
+    income_date = Column(Date, nullable=True, index=True)
+    investment_amount = Column(Float, default=0.0, nullable=False)
+    investment_date = Column(Date, nullable=True, index=True)
+    destination_platform = Column(String(100), nullable=True)
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", back_populates="tracker_entries")
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'entry_key', name='unique_user_tracker_entry_key'),
+        CheckConstraint('income_amount >= 0', name='nonnegative_tracker_income_amount'),
+        CheckConstraint('investment_amount >= 0', name='nonnegative_tracker_investment_amount'),
+        CheckConstraint(
+            'income_amount > 0 OR investment_amount > 0',
+            name='tracker_entry_has_amount',
+        ),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'entry_key': self.entry_key,
+            'income_amount': self.income_amount,
+            'income_date': self.income_date.isoformat() if self.income_date else None,
+            'investment_amount': self.investment_amount,
+            'investment_date': self.investment_date.isoformat() if self.investment_date else None,
+            'destination_platform': self.destination_platform,
+            'note': self.note,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+class PortfolioCashFlow(Base):
+    """External portfolio cash movements used for cash-flow-adjusted returns."""
+    __tablename__ = 'portfolio_cash_flows'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    effective_date = Column(Date, nullable=False, index=True)
+    amount = Column(Float, nullable=False)
+    flow_type = Column(String(20), nullable=False, index=True)
+    source_platform = Column(String(100), nullable=True)
+    destination_platform = Column(String(100), nullable=True)
+    previous_invested_total = Column(Float, nullable=True)
+    new_invested_total = Column(Float, nullable=True)
+    note = Column(Text, nullable=True)
+    source = Column(String(100), nullable=True)
+    event_key = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", back_populates="portfolio_cash_flows")
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'event_key', name='unique_user_portfolio_cash_flow_event'),
+        CheckConstraint('amount > 0', name='positive_portfolio_cash_flow_amount'),
+        CheckConstraint(
+            "flow_type IN ('contribution', 'withdrawal', 'transfer', 'correction', 'baseline')",
+            name='valid_portfolio_cash_flow_type',
+        ),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'effective_date': self.effective_date.isoformat() if self.effective_date else None,
+            'amount': self.amount,
+            'flow_type': self.flow_type,
+            'source_platform': self.source_platform,
+            'destination_platform': self.destination_platform,
+            'previous_invested_total': self.previous_invested_total,
+            'new_invested_total': self.new_invested_total,
+            'note': self.note,
+            'source': self.source,
+            'event_key': self.event_key,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
 class Goal(Base):

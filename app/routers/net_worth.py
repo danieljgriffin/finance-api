@@ -71,7 +71,8 @@ def get_dashboard_summary(
         "ytd_change": data["year_change"]["amount"],
         "ytd_change_percent": data["year_change"]["percent"],
         "platform_breakdown": data["platform_breakdown"],
-        "platforms": data["platforms"]
+        "platforms": data["platforms"],
+        "portfolio_performance": data["portfolio_performance"],
     }
 
 @router.get("/monthly-tracker")

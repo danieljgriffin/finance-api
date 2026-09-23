@@ -11,11 +11,11 @@ SQLALCHEMY_DATABASE_URI = settings.DATABASE_URL
 if SQLALCHEMY_DATABASE_URI.startswith("postgres://"):
     SQLALCHEMY_DATABASE_URI = SQLALCHEMY_DATABASE_URI.replace("postgres://", "postgresql://", 1)
 
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URI,
-    poolclass=NullPool,
-    # echo=True  # Uncomment for SQL logging
-)
+engine_options = {"poolclass": NullPool}
+if SQLALCHEMY_DATABASE_URI.startswith("sqlite"):
+    engine_options["connect_args"] = {"check_same_thread": False}
+
+engine = create_engine(SQLALCHEMY_DATABASE_URI, **engine_options)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

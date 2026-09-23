@@ -1,4 +1,12 @@
+import os
 import pytest
+
+# Set isolation before importing app.main/settings. Tests must never connect to
+# Postgres, create scheduler.log, or start the network scheduler.
+os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+os.environ["ENVIRONMENT"] = "testing"
+os.environ["ENABLE_SCHEDULER"] = "false"
+os.environ["ENABLE_REMOTE_DATA"] = "false"
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -6,6 +14,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.database import Base, get_db
 from app.models import User  # Make sure User model is imported so it's registered
+from app.config import settings
 
 # Use in-memory SQLite for tests
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
@@ -37,7 +46,8 @@ def db(db_engine):
     yield session
     
     session.close()
-    transaction.rollback()
+    if transaction.is_active:
+        transaction.rollback()
     connection.close()
 
 @pytest.fixture(scope="function")
@@ -52,7 +62,10 @@ def client(db):
             pass
             
     app.dependency_overrides[get_db] = override_get_db
-    yield TestClient(app)
+    yield TestClient(
+        app,
+        headers={"Authorization": f"Bearer {settings.API_TOKEN}"},
+    )
     del app.dependency_overrides[get_db]
 
 @pytest.fixture
@@ -67,11 +80,7 @@ def test_user_id(db):
     # Based on models.py inspection (not shown yet but assuming standard structure)
     try:
         # Create a dummy user
-        user = User(
-            email="test@example.com", 
-            hashed_password="fakehash",
-            is_active=True
-        )
+        user = User(id=1, email="test@example.com")
         db.add(user)
         db.commit()
         db.refresh(user)

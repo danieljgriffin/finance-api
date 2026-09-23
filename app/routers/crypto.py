@@ -5,6 +5,7 @@ from app.services.crypto_service import CryptoService
 from app.services.holdings_service import HoldingsService
 from app.schemas import InvestmentCreate
 from app.models import Investment, CryptoWallet
+from app.utils.runtime import require_remote_data_enabled
 from pydantic import BaseModel
 
 router = APIRouter(
@@ -28,6 +29,7 @@ async def connect_crypto_investment(
     Creates a new Investment entry and links a CryptoWallet to it.
     Triggers an immediate background sync.
     """
+    require_remote_data_enabled()
     holdings_service = HoldingsService(db, request.user_id)
     crypto_service = CryptoService(db)
     
@@ -77,6 +79,7 @@ async def sync_wallet_endpoint(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
+    require_remote_data_enabled()
     crypto_service = CryptoService(db)
     wallet = db.query(CryptoWallet).filter(CryptoWallet.id == wallet_id).first()
     if not wallet:

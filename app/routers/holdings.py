@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List, Dict
+from typing import List, Dict, Optional
 from app.database import get_db
 from app.dependencies import get_current_user_id
 from app.services.holdings_service import HoldingsService
 from app.services.search_service import SearchService
 from app.schemas import Investment, InvestmentCreate, InvestmentUpdate, PlatformCash, PlatformCashUpdate
+from app.utils.runtime import require_remote_data_enabled
 
 router = APIRouter(
     prefix="/holdings",
@@ -93,12 +94,17 @@ def get_platform_cash(
 @router.post("/cash/{platform}", response_model=PlatformCash)
 def update_platform_cash(
     platform: str,
-    cash_data: PlatformCashUpdate,
     db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    user_id: int = Depends(get_current_user_id),
+    cash_data: Optional[PlatformCashUpdate] = None,
+    amount: Optional[float] = None,
 ):
+    """Update cash using the JSON contract or the legacy amount query parameter."""
+    if cash_data is None and amount is None:
+        raise HTTPException(status_code=422, detail="cash_balance or amount is required")
     service = HoldingsService(db, user_id)
-    return service.update_platform_cash(platform, cash_data.cash_balance)
+    balance = cash_data.cash_balance if cash_data is not None else amount
+    return service.update_platform_cash(platform, balance)
 
 @router.post("/platform/rename")
 def rename_platform(
@@ -143,6 +149,7 @@ async def refresh_prices(
     user_id: int = Depends(get_current_user_id)
 ):
     """Update current prices for all investments with symbols using robust PriceFetcher"""
+    require_remote_data_enabled()
     holdings_service = HoldingsService(db, user_id)
     return await holdings_service.update_all_prices_async()
 
@@ -159,6 +166,7 @@ async def import_trading212(
     user_id: int = Depends(get_current_user_id)
 ):
     """Import investments from Trading212 and save credentials for auto-sync"""
+    require_remote_data_enabled()
     import logging
     import traceback
     logger = logging.getLogger(__name__)

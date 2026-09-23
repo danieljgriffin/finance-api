@@ -78,14 +78,21 @@ from app.services.analytics_service import AnalyticsService
 import logging
 import sys
 
-# Configure Logging to both file and console
+# Local/testing runs must not create or append scheduler.log.
+_environment_name = settings.ENVIRONMENT.strip().lower()
+_is_local_runtime = (
+    _environment_name in {"test", "testing", "local"}
+    or settings.DATABASE_URL.startswith("sqlite")
+)
+_logging_handlers = [logging.StreamHandler(sys.stdout)]
+if not _is_local_runtime:
+    _logging_handlers.insert(0, logging.FileHandler("scheduler.log"))
+
+# Configure logging for the active runtime.
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("scheduler.log"),
-        logging.StreamHandler(sys.stdout)
-    ]
+    handlers=_logging_handlers,
 )
 logger = logging.getLogger(__name__)
 
@@ -209,5 +216,8 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Startup: Failed to seed user: {e}")
 
-    # 2. Start Scheduler
-    asyncio.create_task(run_scheduler())
+    # 2. Start Scheduler only for an explicitly enabled non-local runtime.
+    if settings.ENABLE_SCHEDULER and not _is_local_runtime:
+        asyncio.create_task(run_scheduler())
+    else:
+        logger.info("Startup: Scheduler disabled for this runtime.")

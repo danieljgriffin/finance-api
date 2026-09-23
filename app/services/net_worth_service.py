@@ -1,6 +1,13 @@
 from sqlalchemy.orm import Session
-from app.models import MonthlyFinancialRecord, NetWorthSnapshot, DailyNetWorthSnapshot
+from app.models import (
+    MonthlyFinancialRecord,
+    NetWorthSnapshot,
+    DailyNetWorthSnapshot,
+    PortfolioCashFlow,
+    IncomeData,
+)
 from app.services.holdings_service import HoldingsService
+from app.utils.portfolio import is_standalone_cash_platform
 from datetime import datetime, timedelta, date
 from typing import Dict, Any, List, Optional
 import calendar
@@ -43,6 +50,117 @@ class NetWorthService:
         """Calculate current net worth by summing all platform totals"""
         platform_totals = self.calculate_platform_totals()
         return sum(platform_totals.values())
+
+    @staticmethod
+    def _portfolio_value_from_breakdown(
+        breakdown: Optional[Dict[str, Any]],
+        fallback_total: float = 0.0,
+    ) -> float:
+        if not isinstance(breakdown, dict) or not breakdown:
+            return float(fallback_total or 0.0)
+
+        total = 0.0
+        for platform, value in breakdown.items():
+            if is_standalone_cash_platform(str(platform)):
+                continue
+            try:
+                total += float(value or 0.0)
+            except (TypeError, ValueError):
+                continue
+        return total
+
+    def _get_period_start_portfolio_value(self, period_start: date) -> float:
+        """Resolve a deterministic period baseline from permanent records first."""
+        monthly_record = self.db.query(MonthlyFinancialRecord).filter(
+            MonthlyFinancialRecord.user_id == self.user_id,
+            MonthlyFinancialRecord.period_date == period_start,
+        ).first()
+        if monthly_record:
+            return self._portfolio_value_from_breakdown(
+                monthly_record.details,
+                monthly_record.net_worth,
+            )
+
+        daily_record = self.db.query(DailyNetWorthSnapshot).filter(
+            DailyNetWorthSnapshot.user_id == self.user_id,
+            DailyNetWorthSnapshot.snapshot_date <= period_start,
+        ).order_by(DailyNetWorthSnapshot.snapshot_date.desc()).first()
+        if daily_record:
+            return self._portfolio_value_from_breakdown(
+                daily_record.assets_breakdown,
+                daily_record.total_amount,
+            )
+        return 0.0
+
+    def _sum_performance_flows(self, flow_type: str, start: date, end: date) -> float:
+        events = self.db.query(PortfolioCashFlow).filter(
+            PortfolioCashFlow.user_id == self.user_id,
+            PortfolioCashFlow.flow_type == flow_type,
+            PortfolioCashFlow.effective_date >= start,
+            PortfolioCashFlow.effective_date <= end,
+        ).all()
+        return sum(float(event.amount or 0.0) for event in events)
+
+    @staticmethod
+    def _performance_period(
+        start_value: float,
+        current_value: float,
+        contributions: float,
+        withdrawals: float,
+    ) -> Dict[str, float]:
+        gain = current_value - start_value - contributions + withdrawals
+        denominator = start_value + contributions - withdrawals
+        percent = (gain / denominator * 100) if denominator > 0 else 0.0
+        return {
+            "amount": gain,
+            "percent": percent,
+            "contributions": contributions,
+            "withdrawals": withdrawals,
+            "start_value": start_value,
+            "current_value": current_value,
+        }
+
+    def get_portfolio_performance(
+        self,
+        platform_totals: Optional[Dict[str, float]] = None,
+    ) -> Dict[str, Dict[str, float]]:
+        """Cash-flow-adjusted month and year performance for investment platforms."""
+        today = date.today()
+        month_start = date(today.year, today.month, 1)
+        year_start = date(today.year, 1, 1)
+        totals = platform_totals if platform_totals is not None else self.calculate_platform_totals()
+        current_value = self._portfolio_value_from_breakdown(totals)
+
+        month_contributions = self._sum_performance_flows(
+            'contribution', month_start, today
+        )
+        month_withdrawals = self._sum_performance_flows(
+            'withdrawal', month_start, today
+        )
+
+        annual_income = self.db.query(IncomeData).filter(
+            IncomeData.user_id == self.user_id,
+            IncomeData.year == str(today.year),
+        ).first()
+        year_contributions = float(annual_income.investment or 0.0) if annual_income else 0.0
+        year_withdrawals = self._sum_performance_flows(
+            'withdrawal', year_start, today
+        )
+
+        return {
+            "month": self._performance_period(
+                self._get_period_start_portfolio_value(month_start),
+                current_value,
+                month_contributions,
+                month_withdrawals,
+            ),
+            "year": self._performance_period(
+                self._get_period_start_portfolio_value(year_start),
+                current_value,
+                year_contributions,
+                year_withdrawals,
+            ),
+        }
 
     def _parse_month(self, month_str: str) -> int:
         """Helper to parse month string like 'January', 'Jan', '1st Jan' to 1-12"""
@@ -252,7 +370,8 @@ class NetWorthService:
                 "percent": year_change_percent
             },
             "platform_breakdown": platform_totals,
-            "platforms": platforms_summary
+            "platforms": platforms_summary,
+            "portfolio_performance": self.get_portfolio_performance(platform_totals),
         }
 
     def get_monthly_tracker_data(self) -> List[Dict[str, Any]]:
