@@ -17,65 +17,93 @@ class Trading212Service:
             "https://demo.trading212.com/api/v0"
         ]
 
-    def fetch_portfolio(self) -> List[Dict]:
-        """Fetch all open positions from Trading212 using Basic Auth"""
+    def _auth_header(self) -> str:
+        """Build the Trading 212 Basic Auth header without logging credentials."""
         import base64
-        
+
         if not self.api_key_id or not self.api_secret_key:
             raise ValueError("Both API Key ID and Secret Key are required for Basic Auth")
 
-        # Create Basic Auth header: Basic base64(key_id:secret_key)
         credentials = f"{self.api_key_id}:{self.api_secret_key}"
-        encoded_creds = base64.b64encode(credentials.encode('utf-8')).decode('utf-8')
-        auth_header = f"Basic {encoded_creds}"
-        
-        logging.info(f"T212 Auth: API Key length={len(self.api_key_id)}, Secret length={len(self.api_secret_key)}")
+        encoded_creds = base64.b64encode(credentials.encode("utf-8")).decode("utf-8")
+        return f"Basic {encoded_creds}"
 
+    def _fetch_json(self, endpoint_path: str, description: str):
+        """Fetch one account-scoped Trading 212 resource from live or demo."""
+        auth_header = self._auth_header()
         last_exception = None
 
         for url_base in self.urls:
-            endpoint = f"{url_base}/equity/portfolio"
-            
+            endpoint = f"{url_base}{endpoint_path}"
             try:
                 headers = {**self.base_headers, "Authorization": auth_header}
-                
-                logging.info(f"T212: Attempting connection to {url_base}...")
+                logging.info(f"T212: Fetching {description} from {url_base}...")
                 response = requests.get(endpoint, headers=headers, timeout=10)
-                
-                logging.info(f"T212: Response status={response.status_code}")
-                
+                logging.info(f"T212: {description} response status={response.status_code}")
+
                 if response.status_code == 200:
-                    data = response.json()
-                    logging.info(f"T212: SUCCESS! Received {len(data)} positions")
-                    return data
-                elif response.status_code == 429:
-                    logging.error(f"T212: Rate Limit Hit: {response.text}")
-                    raise ValueError("Rate limit exceeded. Try again later.")
-                elif response.status_code == 401:
-                    logging.error(f"T212: UNAUTHORIZED (401) - Check API Key and Secret")
-                    logging.error(f"T212: Response body: {response.text}")
+                    return response.json()
+                if response.status_code == 429:
+                    raise ValueError("Trading 212 rate limit exceeded. Try again later.")
+                if response.status_code == 401:
+                    logging.error("T212: UNAUTHORIZED (401) - Check API Key and Secret")
                 elif response.status_code == 403:
-                    logging.error(f"T212: FORBIDDEN (403) - Check API permissions (Portfolio must be enabled)")
-                    logging.error(f"T212: Response body: {response.text}")
+                    logging.error(
+                        "T212: FORBIDDEN (403) - Check Account Data and Portfolio permissions"
+                    )
                 else:
-                    logging.warning(f"T212: Failed ({url_base}) -> Status={response.status_code} Body={response.text}")
-                    
+                    logging.warning(
+                        f"T212: Failed ({url_base}) -> Status={response.status_code}"
+                    )
             except requests.exceptions.Timeout:
                 logging.error(f"T212: Connection timeout to {url_base}")
                 last_exception = Exception("Connection timeout")
-            except requests.exceptions.ConnectionError as e:
-                logging.error(f"T212: Connection error to {url_base}: {e}")
-                last_exception = e
-            except Exception as e:
-                last_exception = e
-                logging.warning(f"T212: Error ({url_base}): {e}")
+            except requests.exceptions.ConnectionError as exc:
+                logging.error(f"T212: Connection error to {url_base}: {exc}")
+                last_exception = exc
+            except ValueError:
+                raise
+            except Exception as exc:
+                last_exception = exc
+                logging.warning(f"T212: Error ({url_base}): {exc}")
 
-        # If we get here, nothing worked
-        msg = f"Failed to connect to Trading212 (Status 401/403). Please verify your API Key ID and Secret Key are correct."
+        message = (
+            f"Failed to fetch Trading 212 {description}. Verify the key was generated "
+            "for the intended account and has Account Data and Portfolio permissions."
+        )
         if last_exception:
-            msg += f" (Error: {str(last_exception)})"
-        logging.error(msg)
-        raise ValueError(msg)
+            message += f" (Error: {last_exception})"
+        raise ValueError(message)
+
+    def fetch_portfolio(self) -> List[Dict]:
+        """Fetch open positions, preserving support for the existing legacy API."""
+        try:
+            data = self._fetch_json("/equity/portfolio", "portfolio")
+        except ValueError:
+            positions = self._fetch_json("/equity/positions", "positions")
+            data = []
+            for position in positions:
+                instrument = position.get("instrument") or {}
+                wallet_impact = position.get("walletImpact") or {}
+                data.append({
+                    "ticker": instrument.get("ticker", ""),
+                    "name": instrument.get("name") or instrument.get("shortName"),
+                    "quantity": position.get("quantity", 0),
+                    "averagePrice": position.get("averagePricePaid", 0),
+                    "currentPrice": position.get("currentPrice", 0),
+                    "currency": instrument.get("currencyCode", ""),
+                    "ppl": wallet_impact.get("unrealizedProfitLoss", 0),
+                    "walletImpact": wallet_impact,
+                })
+        logging.info(f"T212: Received {len(data)} positions")
+        return data
+
+    def fetch_account_summary(self) -> Dict:
+        """Fetch account ID, total value, cash and investment totals."""
+        data = self._fetch_json("/equity/account/summary", "account summary")
+        if not isinstance(data, dict) or data.get("id") is None:
+            raise ValueError("Trading 212 account summary did not include an account ID")
+        return data
 
     def fetch_all_orders(self) -> List[Dict]:
          """

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Literal
 from app.database import get_db
 from app.dependencies import get_current_user_id
 from app.services.holdings_service import HoldingsService
@@ -158,6 +158,7 @@ from pydantic import BaseModel
 class Trading212ImportRequest(BaseModel):
     api_key_id: str
     api_secret_key: str
+    account_type: Literal['isa', 'gia'] = 'isa'
 
 @router.post("/import/trading212")
 async def import_trading212(
@@ -171,18 +172,57 @@ async def import_trading212(
     import traceback
     logger = logging.getLogger(__name__)
     
-    logger.info(f"T212 Import: Starting for user {user_id}")
+    logger.info(f"T212 Import: Starting {request.account_type} for user {user_id}")
     logger.info(f"T212 Import: API Key length={len(request.api_key_id)}, Secret length={len(request.api_secret_key)}")
     
     holdings_service = HoldingsService(db, user_id)
     try:
+        other_type = 'gia' if request.account_type == 'isa' else 'isa'
+        other_credentials = holdings_service.get_trading212_credentials(other_type)
+        if (
+            other_credentials
+            and other_credentials['api_key_id'] == request.api_key_id.strip()
+            and other_credentials['api_secret_key'] == request.api_secret_key.strip()
+        ):
+            raise ValueError(
+                "These credentials are already connected to the other Trading 212 account. "
+                "Generate a separate key while viewing the intended account."
+            )
+
+        # Resolve and verify the external account before writing any holdings so
+        # an account cannot accidentally be imported under both ISA and GIA.
+        import asyncio
+        from app.services.trading212_service import Trading212Service
+        t212 = Trading212Service(request.api_key_id, request.api_secret_key)
+        account_summary = await asyncio.get_running_loop().run_in_executor(
+            None, t212.fetch_account_summary
+        )
+        account_id = str(account_summary['id'])
+        if (
+            other_credentials
+            and other_credentials.get('account_id') == account_id
+        ):
+            raise ValueError(
+                "That Trading 212 account is already connected under the other account type."
+            )
+
         # First, sync investments (this validates the credentials work)
         logger.info("T212 Import: Calling sync_trading212_investments...")
-        result = await holdings_service.sync_trading212_investments(request.api_key_id, request.api_secret_key)
+        result = await holdings_service.sync_trading212_investments(
+            request.api_key_id,
+            request.api_secret_key,
+            account_type=request.account_type,
+            account_summary=account_summary,
+        )
         
         # If sync succeeded, ALWAYS save credentials for auto-sync
         logger.info("T212 Import: Sync succeeded, saving credentials...")
-        holdings_service.save_trading212_credentials(request.api_key_id, request.api_secret_key)
+        holdings_service.save_trading212_credentials(
+            request.api_key_id,
+            request.api_secret_key,
+            account_type=request.account_type,
+            account_id=result.get('account_id'),
+        )
         
         logger.info(f"T212 Import: Complete! Result: {result}")
         return result
@@ -199,6 +239,7 @@ async def import_trading212(
 class T212Config(BaseModel):
     api_key_id: str
     api_secret_key: str
+    account_type: Literal['isa', 'gia'] = 'isa'
 
 @router.post("/config/trading212")
 def save_trading212_config(
@@ -208,15 +249,26 @@ def save_trading212_config(
 ):
     """Save Trading212 API credentials securely"""
     holdings_service = HoldingsService(db, user_id)
-    success = holdings_service.save_trading212_credentials(config.api_key_id, config.api_secret_key)
+    success = holdings_service.save_trading212_credentials(
+        config.api_key_id,
+        config.api_secret_key,
+        account_type=config.account_type,
+    )
     return {"status": "success" if success else "error"}
 
 @router.get("/config/trading212")
 def get_trading212_config(
+    account_type: Literal['isa', 'gia'] = Query('isa'),
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user_id)
 ):
     """Check if T212 auto-sync is enabled"""
     holdings_service = HoldingsService(db, user_id)
-    creds = holdings_service.get_trading212_credentials()
-    return {"enabled": creds is not None}
+    creds = holdings_service.get_trading212_credentials(account_type)
+    return {
+        "enabled": creds is not None,
+        "account_type": account_type,
+        "platform": HoldingsService.TRADING212_PLATFORMS[account_type],
+        "account_id": creds.get('account_id') if creds else None,
+        "updated_at": creds.get('updated_at') if creds else None,
+    }

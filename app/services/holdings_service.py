@@ -7,6 +7,11 @@ from typing import List, Dict, Optional, Any
 import asyncio
 
 class HoldingsService:
+    TRADING212_PLATFORMS = {
+        'isa': 'Trading212 ISA',
+        'gia': 'Trading212 GIA',
+    }
+
     def __init__(self, db: Session, user_id: int):
         self.db = db
         self.user_id = user_id
@@ -18,7 +23,7 @@ class HoldingsService:
         
         # Initialize with empty lists for all platforms (could be dynamic or config based)
         default_platforms = [
-            'Degiro', 'Trading212 ISA', 'EQ (GSK shares)', 
+            'Degiro', 'Trading212 ISA', 'Trading212 GIA', 'EQ (GSK shares)',
             'InvestEngine ISA', 'Crypto', 'HL Stocks & Shares LISA', 'Cash'
         ]
         
@@ -86,8 +91,12 @@ class HoldingsService:
             # Platform Totals
             plat_total_value = plat_current_inv_val + cash
             
-            # User Request: P/L = Total Value (inc Cash) - Amount Spent (Investments Only)
-            plat_pl = plat_total_value - plat_invested
+            # Trading 212 cash is part of account value, but is not investment profit.
+            # Preserve the legacy calculation for other manually managed platforms.
+            if platform_name in self.TRADING212_PLATFORMS.values():
+                plat_pl = plat_current_inv_val - plat_invested
+            else:
+                plat_pl = plat_total_value - plat_invested
             
             plat_pl_percent = (plat_pl / plat_invested * 100) if plat_invested != 0 else 0
             
@@ -113,10 +122,8 @@ class HoldingsService:
             # global_pl is derived from totals now, or we can sum plat_pl (mathematically same)
             global_pl += plat_pl
             
-        # 4. Global Percent
-        # User Request: Global P/L = Global Value - Global Invested
-        # (Sanity check: sum of plat_pl is same: sum(val - inv) = sum(val) - sum(inv))
-        global_pl = global_value - global_invested
+        # 4. Global Percent. Sum the platform P/L values so Trading 212 cash is
+        # not reintroduced as profit after being excluded above.
         global_pl_percent = (global_pl / global_invested * 100) if global_invested != 0 else 0
         
         # 5. Sort Platforms by Total Value Descending
@@ -345,6 +352,7 @@ class HoldingsService:
     DEFAULT_PLATFORM_COLORS = {
         'Degiro': '#2563EB',         # bg-blue-600
         'Trading212 ISA': '#10B981', # bg-emerald-500
+        'Trading212 GIA': '#3B82F6', # bg-blue-500
         'EQ (GSK shares)': '#F43F5E',# bg-rose-500
         'InvestEngine ISA': '#F97316',# bg-orange-500
         'Crypto': '#A855F7',         # bg-purple-500
@@ -501,34 +509,61 @@ class HoldingsService:
         except Exception:
             return default
 
-    async def sync_trading212_investments(self, api_key_id: str, api_secret_key: str) -> Dict[str, Any]:
-        """Sync investments from Trading212 using smart upsert.
-        
-        Compares incoming T212 positions against existing DB records:
-        - Existing + changed → update position data (holdings, cost) only
-        - New position → insert with T212-converted price as initial value
-        - Sold position (in DB but not in T212) → delete
-        
-        Does NOT touch current_price for existing investments — that is 
-        managed solely by update_all_prices_async() in the scheduler.
-        """
+    async def sync_trading212_investments(
+        self,
+        api_key_id: str,
+        api_secret_key: str,
+        account_type: str = 'isa',
+        account_summary: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Sync one account-scoped Trading 212 connection into its platform."""
         from app.services.trading212_service import Trading212Service
         from app.utils.price_fetcher import PriceFetcher
         import logging
         logger = logging.getLogger(__name__)
-        
-        logger.info("T212 Sync: Starting upsert sync...")
-        
+
+        account_type = account_type.strip().lower()
+        target_platform = self.TRADING212_PLATFORMS.get(account_type)
+        if not target_platform:
+            raise ValueError("Trading 212 account type must be 'isa' or 'gia'")
+
+        logger.info(f"T212 Sync: Starting {target_platform} upsert sync...")
         t212 = Trading212Service(api_key_id, api_secret_key)
-        
         loop = asyncio.get_running_loop()
         portfolio = await loop.run_in_executor(None, t212.fetch_portfolio)
-        
-        logger.info(f"T212 Sync: Fetched {len(portfolio)} positions from Trading212 API")
 
+        if account_summary is None:
+            try:
+                account_summary = await loop.run_in_executor(None, t212.fetch_account_summary)
+            except ValueError:
+                # The existing ISA integration predates account-summary syncing. Keep it
+                # operational if its old key lacks Account Data permission, while GIA
+                # requires the summary so cash-only accounts still appear correctly.
+                if account_type == 'gia':
+                    raise
+                logger.warning(
+                    "T212 Sync: ISA account summary unavailable; continuing with positions only"
+                )
+
+        logger.info(
+            f"T212 Sync: Fetched {len(portfolio)} {target_platform} positions"
+        )
+
+        # The current Positions API already gives exact account-currency values.
+        # Only call the FX service for legacy USD positions that lack walletImpact.
+        requires_usd_fx = any(
+            not (
+                (item.get('walletImpact') or {}).get('currentValue') is not None
+                and (item.get('walletImpact') or {}).get('totalCost') is not None
+            )
+            and (
+                str(item.get('currency', '')).upper() == 'USD'
+                or str(item.get('ticker', '')).endswith('_US_EQ')
+            )
+            for item in portfolio
+        )
         price_fetcher = PriceFetcher()
-        target_platform = 'Trading212 ISA'
-        
+
         # 1. Load existing T212 investments into a lookup by symbol
         existing_investments = self.db.query(Investment).filter(
             Investment.user_id == self.user_id,
@@ -538,15 +573,16 @@ class HoldingsService:
         existing_by_symbol = {inv.symbol: inv for inv in existing_investments if inv.symbol}
         logger.info(f"T212 Sync: Found {len(existing_investments)} existing investments in DB")
         
-        # Prefetch FX rate
-        usd_to_gbp = price_fetcher.get_usd_to_gbp_rate()
-        logger.info(f"T212 Sync: USD to GBP rate: {usd_to_gbp}")
+        usd_to_gbp = price_fetcher.get_usd_to_gbp_rate() if requires_usd_fx else 1.0
+        if requires_usd_fx:
+            logger.info(f"T212 Sync: USD to GBP rate: {usd_to_gbp}")
         
         # Track which symbols came from T212 (to detect sold positions later)
         incoming_symbols = set()
         added_count = 0
         updated_count = 0
         unchanged_count = 0
+        synced_positions_value = 0.0
         
         for item in portfolio:
             raw_ticker = item.get('ticker', '')
@@ -599,7 +635,33 @@ class HoldingsService:
                  if final_symbol.endswith('.L') and avg_price > 500:
                       avg_price = avg_price / 100.0
 
+            t212_current_price_raw = float(item.get('currentPrice', 0))
+            current_price = t212_current_price_raw
+            if t212_current_price_raw > 0:
+                if currency == 'USD':
+                    current_price = t212_current_price_raw * usd_to_gbp
+                elif currency == 'GBX':
+                    current_price = t212_current_price_raw / 100.0
+                elif currency == 'GBP' and t212_current_price_raw > 500:
+                    current_price = t212_current_price_raw / 100.0
+
             target_amount_spent = quantity * avg_price
+            current_position_value = quantity * current_price
+
+            # The current Positions API supplies exact account-currency wallet
+            # values. Prefer them over our legacy FX conversion when available.
+            wallet_impact = item.get('walletImpact') or {}
+            if (
+                wallet_impact.get('currentValue') is not None
+                and wallet_impact.get('totalCost') is not None
+            ):
+                current_position_value = float(wallet_impact['currentValue'])
+                target_amount_spent = float(wallet_impact['totalCost'])
+                if quantity > 0:
+                    current_price = current_position_value / quantity
+                    avg_price = target_amount_spent / quantity
+
+            synced_positions_value += current_position_value
             
             # Step 5: Check if this investment already exists in our DB
             existing = existing_by_symbol.get(final_symbol)
@@ -608,32 +670,20 @@ class HoldingsService:
                 # Compare position data — has anything actually changed?
                 holdings_changed = abs(existing.holdings - quantity) > 0.0001
                 cost_changed = abs(existing.amount_spent - target_amount_spent) > 0.01
+                price_changed = abs(existing.current_price - current_price) > 0.0001
                 
-                if holdings_changed or cost_changed:
-                    # Update position data only — leave current_price untouched
+                if holdings_changed or cost_changed or price_changed:
                     existing.holdings = quantity
                     existing.average_buy_price = avg_price
                     existing.amount_spent = target_amount_spent
+                    existing.current_price = current_price
                     existing.name = company_name
                     existing.last_updated = datetime.utcnow()
                     updated_count += 1
-                    logger.info(f"T212 Sync: Updated {final_symbol} (holdings: {existing.holdings}->{quantity})")
+                    logger.info(f"T212 Sync: Updated {target_platform} {final_symbol}")
                 else:
                     unchanged_count += 1
             else:
-                # New position — insert with T212-converted price as initial value
-                t212_current_price_raw = float(item.get('currentPrice', 0))
-                initial_current_price = 0
-                if t212_current_price_raw > 0:
-                    if currency == 'USD':
-                        initial_current_price = t212_current_price_raw * usd_to_gbp
-                    elif currency == 'GBX':
-                        initial_current_price = t212_current_price_raw / 100.0
-                    elif currency == 'GBP' and t212_current_price_raw > 500:
-                        initial_current_price = t212_current_price_raw / 100.0
-                    else:
-                        initial_current_price = t212_current_price_raw
-                
                 new_inv = Investment(
                     user_id=self.user_id,
                     platform=target_platform,
@@ -642,7 +692,7 @@ class HoldingsService:
                     holdings=quantity,
                     average_buy_price=avg_price,
                     amount_spent=target_amount_spent,
-                    current_price=initial_current_price
+                    current_price=current_price,
                 )
                 self.db.add(new_inv)
                 added_count += 1
@@ -655,7 +705,39 @@ class HoldingsService:
                 logger.info(f"T212 Sync: Removing sold position {symbol}")
                 self.db.delete(inv)
                 deleted_count += 1
-                
+
+        # The account summary lets a cash-only GIA appear immediately. Prefer the
+        # explicit cash buckets; fall back to total minus investments for older
+        # summary shapes.
+        cash_balance = None
+        account_id = None
+        if account_summary:
+            account_id = str(account_summary['id'])
+            cash_summary = account_summary.get('cash') or {}
+            explicit_cash_values = [
+                cash_summary.get('availableToTrade'),
+                cash_summary.get('inPies'),
+                cash_summary.get('reservedForOrders'),
+            ]
+            if any(value is not None for value in explicit_cash_values):
+                cash_balance = sum(float(value or 0.0) for value in explicit_cash_values)
+            else:
+                account_total = float(account_summary.get('totalValue') or 0.0)
+                cash_balance = max(account_total - synced_positions_value, 0.0)
+            cash_entry = self.db.query(PlatformCash).filter(
+                PlatformCash.user_id == self.user_id,
+                PlatformCash.platform == target_platform,
+            ).first()
+            if cash_entry:
+                cash_entry.cash_balance = cash_balance
+                cash_entry.last_updated = datetime.utcnow()
+            else:
+                self.db.add(PlatformCash(
+                    user_id=self.user_id,
+                    platform=target_platform,
+                    cash_balance=cash_balance,
+                ))
+
         self.db.commit()
         
         logger.info(
@@ -666,15 +748,25 @@ class HoldingsService:
         
         return {
             "status": "success",
-            "message": f"Synced {len(portfolio)} positions from Trading212",
+            "message": f"Synced {len(portfolio)} positions into {target_platform}",
+            "platform": target_platform,
+            "account_type": account_type,
+            "account_id": account_id,
+            "cash_balance": cash_balance,
             "added": added_count,
             "updated": updated_count,
             "unchanged": unchanged_count,
             "deleted": deleted_count
         }
 
-    def save_trading212_credentials(self, api_key_id: str, api_secret_key: str) -> bool:
-        """Encrypt and save T212 credentials to user preferences"""
+    def save_trading212_credentials(
+        self,
+        api_key_id: str,
+        api_secret_key: str,
+        account_type: str = 'isa',
+        account_id: Optional[str] = None,
+    ) -> bool:
+        """Encrypt and save one account-scoped Trading 212 connection."""
         from app.utils.security import encrypt_value
         from app.models import User
         from sqlalchemy.orm.attributes import flag_modified
@@ -686,26 +778,43 @@ class HoldingsService:
             logger.error(f"T212 Save: User {self.user_id} not found")
             return False
         
-        # Ensure we work with a copy or new dict
+        account_type = account_type.strip().lower()
+        platform = self.TRADING212_PLATFORMS.get(account_type)
+        if not platform:
+            raise ValueError("Trading 212 account type must be 'isa' or 'gia'")
+
         prefs = dict(user.preferences) if user.preferences else {}
-        
         t212_config = {
             "enabled": True,
+            "account_type": account_type,
+            "platform": platform,
+            "account_id": str(account_id) if account_id is not None else None,
             "api_key_id_enc": encrypt_value(api_key_id),
             "api_secret_key_enc": encrypt_value(api_secret_key),
             "updated_at": datetime.utcnow().isoformat()
         }
-        
-        prefs['trading212_sync'] = t212_config
+
+        accounts = dict(prefs.get('trading212_accounts') or {})
+        accounts[account_type] = t212_config
+        prefs['trading212_accounts'] = accounts
+
+        # Keep the original ISA slot updated so rolling back this release cannot
+        # disable the established ISA auto-sync.
+        if account_type == 'isa':
+            prefs['trading212_sync'] = t212_config
+
         user.preferences = prefs
         flag_modified(user, "preferences")
         
         self.db.commit()
-        logger.info(f"T212 Save: Credentials saved successfully for user {self.user_id}")
+        logger.info(f"T212 Save: {platform} credentials saved for user {self.user_id}")
         return True
 
-    def get_trading212_credentials(self) -> Optional[Dict[str, str]]:
-        """Retrieve and decrypt T212 credentials"""
+    def get_trading212_credentials(
+        self,
+        account_type: str = 'isa',
+    ) -> Optional[Dict[str, Any]]:
+        """Retrieve and decrypt one Trading 212 connection."""
         from app.utils.security import decrypt_value
         from app.models import User
         import logging
@@ -716,8 +825,18 @@ class HoldingsService:
             logger.debug(f"T212 Creds: User {self.user_id} has no preferences")
             return None
         
+        account_type = account_type.strip().lower()
+        platform = self.TRADING212_PLATFORMS.get(account_type)
+        if not platform:
+            return None
+
         prefs = user.preferences
-        t212_config = prefs.get('trading212_sync')
+        accounts = prefs.get('trading212_accounts') or {}
+        t212_config = accounts.get(account_type)
+
+        # Backward compatibility: production currently stores the ISA here.
+        if not t212_config and account_type == 'isa':
+            t212_config = prefs.get('trading212_sync')
         
         if not t212_config:
             logger.debug("T212 Creds: No trading212_sync config found")
@@ -729,8 +848,21 @@ class HoldingsService:
         try:
             return {
                 "api_key_id": decrypt_value(t212_config.get('api_key_id_enc')),
-                "api_secret_key": decrypt_value(t212_config.get('api_secret_key_enc'))
+                "api_secret_key": decrypt_value(t212_config.get('api_secret_key_enc')),
+                "account_type": account_type,
+                "platform": platform,
+                "account_id": t212_config.get('account_id'),
+                "updated_at": t212_config.get('updated_at'),
             }
         except Exception as e:
             logger.error(f"T212 Creds: Decryption failed: {e}")
             return None
+
+    def get_trading212_connections(self) -> List[Dict[str, Any]]:
+        """Return every enabled Trading 212 account without lumping them together."""
+        connections = []
+        for account_type in self.TRADING212_PLATFORMS:
+            credentials = self.get_trading212_credentials(account_type)
+            if credentials:
+                connections.append(credentials)
+        return connections

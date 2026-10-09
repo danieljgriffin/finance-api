@@ -146,23 +146,28 @@ async def run_scheduler():
                 if update_result.get("updated_count", 0) > 0:
                     scheduler_status["last_successful_price_update"] = datetime.utcnow().isoformat()
                 
-                # Auto-sync Trading212 if credentials exist
-                try:
-                    creds = holdings_service.get_trading212_credentials()
-                    if creds:
-                        logger.info("Scheduler: Auto-syncing Trading212...")
-                        # Add timeout to prevent hanging (Increased to 300s)
+                # Auto-sync each Trading 212 account independently so an issue in
+                # one connection cannot stop the other account or the snapshot.
+                connections = holdings_service.get_trading212_connections()
+                if not connections:
+                    logger.debug("Scheduler: Skipped T212 sync (no credentials configured)")
+                for connection in connections:
+                    platform = connection['platform']
+                    try:
+                        logger.info(f"Scheduler: Auto-syncing {platform}...")
                         await asyncio.wait_for(
-                            holdings_service.sync_trading212_investments(creds['api_key_id'], creds['api_secret_key']),
-                            timeout=300
+                            holdings_service.sync_trading212_investments(
+                                connection['api_key_id'],
+                                connection['api_secret_key'],
+                                account_type=connection['account_type'],
+                            ),
+                            timeout=300,
                         )
-                        logger.info("Scheduler: Trading212 sync completed successfully")
-                    else:
-                        logger.debug("Scheduler: Skipped T212 sync (no credentials configured)")
-                except asyncio.TimeoutError:
-                    logger.error("Scheduler: Trading212 sync timed out")
-                except Exception as e:
-                    logger.error(f"Scheduler: Auto-sync failed: {e}")
+                        logger.info(f"Scheduler: {platform} sync completed successfully")
+                    except asyncio.TimeoutError:
+                        logger.error(f"Scheduler: {platform} sync timed out")
+                    except Exception as e:
+                        logger.error(f"Scheduler: {platform} auto-sync failed: {e}")
                 
                 # 2. Capture the snapshot with fresh prices
                 service = AnalyticsService(db, user_id=1)
