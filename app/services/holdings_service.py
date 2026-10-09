@@ -394,7 +394,10 @@ class HoldingsService:
         from app.utils.price_fetcher import PriceFetcher
         price_fetcher = PriceFetcher()
         
-        investments = self.db.query(Investment).filter(Investment.user_id == self.user_id).all()
+        investments = self.db.query(Investment).filter(
+            Investment.user_id == self.user_id,
+            ~Investment.platform.in_(self.TRADING212_PLATFORMS.values()),
+        ).all()
         
         updated_count = 0
         symbols = [inv.symbol for inv in investments if inv.symbol]
@@ -428,7 +431,10 @@ class HoldingsService:
         
         price_fetcher = PriceFetcher()
         
-        investments = self.db.query(Investment).filter(Investment.user_id == self.user_id).all()
+        investments = self.db.query(Investment).filter(
+            Investment.user_id == self.user_id,
+            ~Investment.platform.in_(self.TRADING212_PLATFORMS.values()),
+        ).all()
         
         # Split investments
         investengine_investments = [inv for inv in investments if inv.platform == 'InvestEngine ISA']
@@ -514,6 +520,80 @@ class HoldingsService:
         except Exception:
             return default
 
+    @staticmethod
+    def _normalize_trading212_uk_prices(
+        current_price: float,
+        average_price: float,
+        currency: str,
+        is_london_instrument: bool,
+    ) -> tuple[float, float]:
+        """Return GBP prices when Trading 212 mixes pounds and pence.
+
+        The legacy endpoint can omit currency and, for some London instruments,
+        return currentPrice in pence while averagePrice is already in pounds.
+        Comparing the two prices lets us correct that mixed-unit response without
+        hard-coding individual tickers.
+        """
+        normalized_currency = currency.upper()
+        if normalized_currency in {'GBX', 'GBPENCE'}:
+            return current_price / 100.0, average_price / 100.0
+
+        if normalized_currency != 'GBP' and not is_london_instrument:
+            return current_price, average_price
+
+        if current_price > 0 and average_price > 0:
+            current_to_average = current_price / average_price
+            average_to_current = average_price / current_price
+            if 50.0 <= current_to_average <= 150.0:
+                return current_price / 100.0, average_price
+            if 50.0 <= average_to_current <= 150.0:
+                return current_price, average_price / 100.0
+
+        # With no currency metadata, two similar large London prices are most
+        # likely both pence (for example 1,372p and 1,186p).
+        if (
+            not normalized_currency
+            and is_london_instrument
+            and current_price > 500.0
+            and average_price > 500.0
+        ):
+            return current_price / 100.0, average_price / 100.0
+
+        return current_price, average_price
+
+    @staticmethod
+    def _validate_trading212_totals(
+        account_summary: Dict[str, Any],
+        positions_value: float,
+        cash_balance: float,
+    ) -> None:
+        """Reject a sync whose normalized values disagree with Trading 212."""
+        investments_summary = account_summary.get('investments') or {}
+        expected_positions = investments_summary.get('currentValue')
+        expected_total = account_summary.get('totalValue')
+
+        if expected_positions is None and expected_total is not None:
+            expected_positions = float(expected_total) - cash_balance
+
+        comparisons = []
+        if expected_positions is not None:
+            comparisons.append(
+                ('investment value', positions_value, float(expected_positions))
+            )
+        if expected_total is not None:
+            comparisons.append(
+                ('account value', positions_value + cash_balance, float(expected_total))
+            )
+
+        for label, calculated, expected in comparisons:
+            tolerance = max(2.0, abs(expected) * 0.02)
+            if abs(calculated - expected) > tolerance:
+                raise ValueError(
+                    f"Trading 212 {label} validation failed: calculated "
+                    f"£{calculated:,.2f}, account reports £{expected:,.2f}. "
+                    "The previous saved values were kept."
+                )
+
     async def sync_trading212_investments(
         self,
         api_key_id: str,
@@ -571,150 +651,85 @@ class HoldingsService:
         )
         price_fetcher = PriceFetcher()
 
-        # 1. Load existing T212 investments into a lookup by symbol
-        existing_investments = self.db.query(Investment).filter(
-            Investment.user_id == self.user_id,
-            Investment.platform == target_platform
-        ).all()
-        
-        existing_by_symbol = {inv.symbol: inv for inv in existing_investments if inv.symbol}
-        logger.info(f"T212 Sync: Found {len(existing_investments)} existing investments in DB")
-        
         usd_to_gbp = price_fetcher.get_usd_to_gbp_rate() if requires_usd_fx else 1.0
         if requires_usd_fx:
             logger.info(f"T212 Sync: USD to GBP rate: {usd_to_gbp}")
-        
-        # Track which symbols came from T212 (to detect sold positions later)
-        incoming_symbols = set()
-        added_count = 0
-        updated_count = 0
-        unchanged_count = 0
+
+        # Normalize the complete response in memory. No database row is touched
+        # until every position has been checked against the account summary.
+        normalized_positions = []
         synced_positions_value = 0.0
-        
+
         for item in portfolio:
             raw_ticker = item.get('ticker', '')
             quantity = float(item.get('quantity', 0))
             avg_price = float(item.get('averagePrice', 0))
-            currency = item.get('currency', '').upper()
-            
-            # Step 1: Normalize (NVDA_US_EQ -> NVDA)
+            current_price = float(item.get('currentPrice', 0))
+            currency = str(item.get('currency') or '').upper()
+
             normalized_symbol = self.normalize_trading212_ticker(raw_ticker)
-            
-            # Step 2: Remap (FB -> META)
             final_symbol = self.remap_ticker(normalized_symbol)
-            incoming_symbols.add(final_symbol)
-            
-            # Step 3: Get Name (Dynamic Lookup)
             fallback_name = item.get('name') or final_symbol
             company_name = self.get_company_name_safe(final_symbol, fallback_name)
 
-            # Fallback: Infer currency from ticker suffix if missing
-            if not currency:
-                if raw_ticker.endswith('_US_EQ'):
-                    currency = 'USD'
+            if not currency and raw_ticker.endswith('_US_EQ'):
+                currency = 'USD'
 
-            # Step 4: Currency Conversion for average_buy_price / amount_spent
-            if currency == 'USD':
-                t212_current_price = float(item.get('currentPrice', 0))
-                t212_ppl = float(item.get('ppl', 0))
-                
-                if quantity > 0 and t212_current_price > 0:
-                    current_val_gbp = (quantity * t212_current_price) * usd_to_gbp
-                    total_cost_gbp = current_val_gbp - t212_ppl
-                    avg_price = total_cost_gbp / quantity
-                else:
-                    avg_price = avg_price * usd_to_gbp
-            
-            elif currency in ['GBX', 'GBP'] or (not currency and (raw_ticker.endswith('_EQ') or final_symbol.endswith('.L'))):
-                if currency == 'GBX':
-                    avg_price = avg_price / 100.0
-                elif currency == 'GBP':
-                    if avg_price > 500:
-                         avg_price = avg_price / 100.0
-                else: 
-                     if avg_price > 500:
-                          avg_price = avg_price / 100.0
-            
-            elif currency == 'EUR':
-                pass
-            
-            elif not currency:
-                 if final_symbol.endswith('.L') and avg_price > 500:
-                      avg_price = avg_price / 100.0
-
-            t212_current_price_raw = float(item.get('currentPrice', 0))
-            current_price = t212_current_price_raw
-            if t212_current_price_raw > 0:
-                if currency == 'USD':
-                    current_price = t212_current_price_raw * usd_to_gbp
-                elif currency == 'GBX':
-                    current_price = t212_current_price_raw / 100.0
-                elif currency == 'GBP' and t212_current_price_raw > 500:
-                    current_price = t212_current_price_raw / 100.0
-
-            target_amount_spent = quantity * avg_price
-            current_position_value = quantity * current_price
-
-            # The current Positions API supplies exact account-currency wallet
-            # values. Prefer them over our legacy FX conversion when available.
             wallet_impact = item.get('walletImpact') or {}
-            if (
+            has_exact_wallet_values = (
                 item.get('_source') == 'positions'
-                and
-                wallet_impact.get('currentValue') is not None
+                and wallet_impact.get('currentValue') is not None
                 and wallet_impact.get('totalCost') is not None
-            ):
+            )
+
+            if has_exact_wallet_values:
                 current_position_value = float(wallet_impact['currentValue'])
                 target_amount_spent = float(wallet_impact['totalCost'])
                 if quantity > 0:
                     current_price = current_position_value / quantity
                     avg_price = target_amount_spent / quantity
+            if currency == 'USD':
+                if not has_exact_wallet_values and quantity > 0 and current_price > 0:
+                    current_price *= usd_to_gbp
+                    current_position_value = quantity * current_price
+                    target_amount_spent = current_position_value - float(item.get('ppl', 0))
+                    avg_price = target_amount_spent / quantity
+                elif not has_exact_wallet_values:
+                    current_price *= usd_to_gbp
+                    avg_price *= usd_to_gbp
+                    current_position_value = quantity * current_price
+                    target_amount_spent = quantity * avg_price
+            elif not has_exact_wallet_values:
+                current_price, avg_price = self._normalize_trading212_uk_prices(
+                    current_price,
+                    avg_price,
+                    currency,
+                    final_symbol.endswith('.L'),
+                )
+                current_position_value = quantity * current_price
+                target_amount_spent = quantity * avg_price
+            else:
+                # Exact wallet values have already supplied account-currency
+                # current value and cost, regardless of instrument currency.
+                pass
+
+            if quantity < 0 or current_position_value < 0 or target_amount_spent < 0:
+                raise ValueError(
+                    f"Trading 212 returned invalid values for {final_symbol}; "
+                    "the previous saved values were kept."
+                )
 
             synced_positions_value += current_position_value
-            
-            # Step 5: Check if this investment already exists in our DB
-            existing = existing_by_symbol.get(final_symbol)
-            
-            if existing:
-                # Compare position data — has anything actually changed?
-                holdings_changed = abs(existing.holdings - quantity) > 0.0001
-                cost_changed = abs(existing.amount_spent - target_amount_spent) > 0.01
-                if holdings_changed or cost_changed:
-                    existing.holdings = quantity
-                    existing.average_buy_price = avg_price
-                    existing.amount_spent = target_amount_spent
-                    existing.name = company_name
-                    existing.last_updated = datetime.utcnow()
-                    updated_count += 1
-                    logger.info(f"T212 Sync: Updated {target_platform} {final_symbol}")
-                else:
-                    unchanged_count += 1
-            else:
-                new_inv = Investment(
-                    user_id=self.user_id,
-                    platform=target_platform,
-                    name=company_name, 
-                    symbol=final_symbol,
-                    holdings=quantity,
-                    average_buy_price=avg_price,
-                    amount_spent=target_amount_spent,
-                    current_price=current_price,
-                )
-                self.db.add(new_inv)
-                added_count += 1
-                logger.info(f"T212 Sync: Added new position {final_symbol}")
-        
-        # 6. Delete positions that are in our DB but NOT in T212 (user sold them)
-        deleted_count = 0
-        for symbol, inv in existing_by_symbol.items():
-            if symbol not in incoming_symbols:
-                logger.info(f"T212 Sync: Removing sold position {symbol}")
-                self.db.delete(inv)
-                deleted_count += 1
+            normalized_positions.append({
+                'symbol': final_symbol,
+                'name': company_name,
+                'holdings': quantity,
+                'average_buy_price': avg_price,
+                'amount_spent': target_amount_spent,
+                'current_price': current_price,
+            })
 
-        # The account summary lets a cash-only GIA appear immediately. Prefer the
-        # explicit cash buckets; fall back to total minus investments for older
-        # summary shapes.
+        # Work out cash before validation, but still do not mutate the database.
         cash_balance = None
         account_id = None
         if account_summary:
@@ -730,21 +745,90 @@ class HoldingsService:
             else:
                 account_total = float(account_summary.get('totalValue') or 0.0)
                 cash_balance = max(account_total - synced_positions_value, 0.0)
-            cash_entry = self.db.query(PlatformCash).filter(
-                PlatformCash.user_id == self.user_id,
-                PlatformCash.platform == target_platform,
-            ).first()
-            if cash_entry:
-                cash_entry.cash_balance = cash_balance
-                cash_entry.last_updated = datetime.utcnow()
-            else:
-                self.db.add(PlatformCash(
-                    user_id=self.user_id,
-                    platform=target_platform,
-                    cash_balance=cash_balance,
-                ))
 
-        self.db.commit()
+            self._validate_trading212_totals(
+                account_summary,
+                synced_positions_value,
+                cash_balance,
+            )
+
+        existing_investments = self.db.query(Investment).filter(
+            Investment.user_id == self.user_id,
+            Investment.platform == target_platform,
+        ).all()
+        existing_by_symbol = {
+            investment.symbol: investment
+            for investment in existing_investments
+            if investment.symbol
+        }
+        logger.info(
+            f"T212 Sync: Validated account totals; applying {len(normalized_positions)} "
+            f"positions over {len(existing_investments)} existing rows"
+        )
+
+        incoming_symbols = {position['symbol'] for position in normalized_positions}
+        added_count = 0
+        updated_count = 0
+        unchanged_count = 0
+        deleted_count = 0
+
+        try:
+            for position in normalized_positions:
+                existing = existing_by_symbol.get(position['symbol'])
+                if existing:
+                    changed = (
+                        abs(existing.holdings - position['holdings']) > 0.0001
+                        or abs(existing.amount_spent - position['amount_spent']) > 0.01
+                        or abs(existing.current_price - position['current_price']) > 0.0001
+                        or existing.name != position['name']
+                    )
+                    if changed:
+                        existing.holdings = position['holdings']
+                        existing.average_buy_price = position['average_buy_price']
+                        existing.amount_spent = position['amount_spent']
+                        existing.current_price = position['current_price']
+                        existing.name = position['name']
+                        existing.last_updated = datetime.utcnow()
+                        updated_count += 1
+                    else:
+                        unchanged_count += 1
+                else:
+                    self.db.add(Investment(
+                        user_id=self.user_id,
+                        platform=target_platform,
+                        name=position['name'],
+                        symbol=position['symbol'],
+                        holdings=position['holdings'],
+                        average_buy_price=position['average_buy_price'],
+                        amount_spent=position['amount_spent'],
+                        current_price=position['current_price'],
+                    ))
+                    added_count += 1
+
+            for symbol, investment in existing_by_symbol.items():
+                if symbol not in incoming_symbols:
+                    self.db.delete(investment)
+                    deleted_count += 1
+
+            if cash_balance is not None:
+                cash_entry = self.db.query(PlatformCash).filter(
+                    PlatformCash.user_id == self.user_id,
+                    PlatformCash.platform == target_platform,
+                ).first()
+                if cash_entry:
+                    cash_entry.cash_balance = cash_balance
+                    cash_entry.last_updated = datetime.utcnow()
+                else:
+                    self.db.add(PlatformCash(
+                        user_id=self.user_id,
+                        platform=target_platform,
+                        cash_balance=cash_balance,
+                    ))
+
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
         
         logger.info(
             f"T212 Sync: Complete. "

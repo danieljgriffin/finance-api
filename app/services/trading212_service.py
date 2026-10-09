@@ -76,10 +76,8 @@ class Trading212Service:
         raise ValueError(message)
 
     def fetch_portfolio(self) -> List[Dict]:
-        """Fetch open positions, preserving support for the existing legacy API."""
+        """Fetch open positions, preferring the current API's wallet values."""
         try:
-            data = self._fetch_json("/equity/portfolio", "portfolio")
-        except ValueError:
             positions = self._fetch_json("/equity/positions", "positions")
             data = []
             for position in positions:
@@ -92,10 +90,17 @@ class Trading212Service:
                     "quantity": position.get("quantity", 0),
                     "averagePrice": position.get("averagePricePaid", 0),
                     "currentPrice": position.get("currentPrice", 0),
-                    "currency": instrument.get("currencyCode", ""),
+                    "currency": (
+                        instrument.get("currency")
+                        or instrument.get("currencyCode")
+                        or ""
+                    ),
                     "ppl": wallet_impact.get("unrealizedProfitLoss", 0),
                     "walletImpact": wallet_impact,
                 })
+        except ValueError:
+            # Existing ISA keys may still expose only the legacy endpoint.
+            data = self._fetch_json("/equity/portfolio", "portfolio")
         logging.info(f"T212: Received {len(data)} positions")
         return data
 
