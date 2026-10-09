@@ -86,6 +86,7 @@ class Trading212Service:
                 instrument = position.get("instrument") or {}
                 wallet_impact = position.get("walletImpact") or {}
                 data.append({
+                    "_source": "positions",
                     "ticker": instrument.get("ticker", ""),
                     "name": instrument.get("name") or instrument.get("shortName"),
                     "quantity": position.get("quantity", 0),

@@ -553,6 +553,8 @@ class HoldingsService:
         # Only call the FX service for legacy USD positions that lack walletImpact.
         requires_usd_fx = any(
             not (
+                item.get('_source') == 'positions'
+                and
                 (item.get('walletImpact') or {}).get('currentValue') is not None
                 and (item.get('walletImpact') or {}).get('totalCost') is not None
             )
@@ -652,6 +654,8 @@ class HoldingsService:
             # values. Prefer them over our legacy FX conversion when available.
             wallet_impact = item.get('walletImpact') or {}
             if (
+                item.get('_source') == 'positions'
+                and
                 wallet_impact.get('currentValue') is not None
                 and wallet_impact.get('totalCost') is not None
             ):
@@ -670,13 +674,10 @@ class HoldingsService:
                 # Compare position data — has anything actually changed?
                 holdings_changed = abs(existing.holdings - quantity) > 0.0001
                 cost_changed = abs(existing.amount_spent - target_amount_spent) > 0.01
-                price_changed = abs(existing.current_price - current_price) > 0.0001
-                
-                if holdings_changed or cost_changed or price_changed:
+                if holdings_changed or cost_changed:
                     existing.holdings = quantity
                     existing.average_buy_price = avg_price
                     existing.amount_spent = target_amount_spent
-                    existing.current_price = current_price
                     existing.name = company_name
                     existing.last_updated = datetime.utcnow()
                     updated_count += 1

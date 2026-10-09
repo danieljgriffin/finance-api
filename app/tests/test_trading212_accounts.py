@@ -194,6 +194,53 @@ def test_same_symbol_in_gia_does_not_overwrite_isa(
     assert gia.holdings == pytest.approx(1.0)
 
 
+def test_legacy_sync_does_not_overwrite_existing_market_price(
+    db, test_user_id, monkeypatch
+):
+    db.add(Investment(
+        user_id=test_user_id,
+        platform="Trading212 ISA",
+        name="Rolls-Royce",
+        symbol="RR.L",
+        holdings=59.0,
+        amount_spent=700.0,
+        average_buy_price=11.86,
+        current_price=13.72,
+    ))
+    db.commit()
+    _mock_trading212(
+        monkeypatch,
+        total_value=810.0,
+        portfolio=[{
+            "ticker": "RRl_EQ",
+            "name": "Rolls-Royce",
+            "quantity": 59.0,
+            "averagePrice": 1186.0,
+            "currentPrice": 1372.0,
+            "currency": "GBX",
+            # The legacy endpoint can expose wallet values in instrument minor
+            # units, so they must not be treated as exact GBP position values.
+            "walletImpact": {
+                "currentValue": 80948.0,
+                "totalCost": 69974.0,
+            },
+        }],
+    )
+
+    service = HoldingsService(db, test_user_id)
+    asyncio.run(service.sync_trading212_investments(
+        "isa-key", "isa-secret", account_type="isa"
+    ))
+
+    rr = db.query(Investment).filter(
+        Investment.user_id == test_user_id,
+        Investment.platform == "Trading212 ISA",
+        Investment.symbol == "RR.L",
+    ).one()
+    assert rr.current_price == pytest.approx(13.72)
+    assert rr.average_buy_price == pytest.approx(11.86)
+
+
 def test_gia_connect_endpoint_syncs_and_saves_account(
     client, db, test_user_id, monkeypatch
 ):
