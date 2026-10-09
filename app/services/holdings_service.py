@@ -23,7 +23,7 @@ class HoldingsService:
         
         # Initialize with empty lists for all platforms (could be dynamic or config based)
         default_platforms = [
-            'Degiro', 'Trading212 ISA', 'Trading212 GIA', 'EQ (GSK shares)',
+            'Degiro', 'Trading212 ISA', 'EQ (GSK shares)',
             'InvestEngine ISA', 'Crypto', 'HL Stocks & Shares LISA', 'Cash'
         ]
         
