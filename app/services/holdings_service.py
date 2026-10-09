@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 from app.models import Investment, PlatformCash, User
 from app.schemas import InvestmentCreate
+from app.utils.portfolio import is_standalone_cash_platform
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 import asyncio
@@ -126,8 +127,12 @@ class HoldingsService:
         # not reintroduced as profit after being excluded above.
         global_pl_percent = (global_pl / global_invested * 100) if global_invested != 0 else 0
         
-        # 5. Sort Platforms by Total Value Descending
-        platform_summaries.sort(key=lambda x: x['total_value'], reverse=True)
+        # 5. Sort by value descending, except standalone Cash is always last.
+        platform_summaries.sort(key=lambda item: (
+            is_standalone_cash_platform(item['name']),
+            -item['total_value'],
+            item['name'].casefold(),
+        ))
         
         return {
             "total_value": global_value,

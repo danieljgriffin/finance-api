@@ -358,6 +358,12 @@ class NetWorthService:
                 "month_change_amount": change,
                 "month_change_percent": percent
             })
+
+        platforms_summary.sort(key=lambda item: (
+            is_standalone_cash_platform(item["platform"]),
+            -item["value"],
+            item["platform"].casefold(),
+        ))
             
         return {
             "total_networth": total_networth,
