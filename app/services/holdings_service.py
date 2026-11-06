@@ -1,3 +1,4 @@
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 from app.models import Investment, PlatformCash, User
@@ -171,19 +172,28 @@ class HoldingsService:
         self.db.commit()
         return cash_entry
 
-    def add_investment(self, platform: str, investment_data: InvestmentCreate):
+    def add_investment(self, platform: str, investment_data: InvestmentCreate, *, match_symbol: bool = False):
         """Add a new investment or aggregate with existing one"""
         # Check if this investment already exists in the platform
-        existing_investment = self.db.query(Investment).filter(
+        investments = self.db.query(Investment).filter(
             Investment.user_id == self.user_id,
             Investment.platform == platform,
-            Investment.name == investment_data.name
-        ).first()
+        )
+        if match_symbol and investment_data.symbol:
+            # Serialize planned purchases for this user even when creating the first holding.
+            self.db.query(User.id).filter_by(id=self.user_id).with_for_update().one()
+            existing_investment = investments.filter(
+                func.upper(Investment.symbol) == investment_data.symbol.upper()
+            ).order_by(Investment.id).first()
+        else:
+            existing_investment = investments.filter(Investment.name == investment_data.name).first()
         
         if existing_investment:
             # Calculate new aggregated values
             old_holdings = existing_investment.holdings
             old_amount_spent = existing_investment.amount_spent
+            if match_symbol and not old_amount_spent:
+                old_amount_spent = old_holdings * existing_investment.average_buy_price
             
             # Add new holdings and amount spent
             new_holdings = old_holdings + investment_data.holdings
@@ -196,6 +206,8 @@ class HoldingsService:
             existing_investment.holdings = new_holdings
             existing_investment.amount_spent = new_amount_spent
             existing_investment.average_buy_price = new_average_buy_price
+            if match_symbol and not existing_investment.current_price:
+                existing_investment.current_price = investment_data.current_price
             existing_investment.last_updated = datetime.utcnow()
             
             # Update symbol if provided and not already set

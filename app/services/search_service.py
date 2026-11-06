@@ -6,23 +6,26 @@ when a user types an investment name in the Add Manual Investment modal.
 """
 
 import logging
+import re
 import requests
 import yfinance as yf
 from typing import List, Dict, Optional
 from datetime import datetime
 from cachetools import TTLCache
+from app.services.uk_funds import UK_FUNDS
 
 logger = logging.getLogger(__name__)
 
 
 class SearchResult:
     """A single search result for a market instrument"""
-    def __init__(self, symbol: str, name: str, instrument_type: str, exchange: str, currency: str = "USD"):
+    def __init__(self, symbol: str, name: str, instrument_type: str, exchange: str, currency: str = "USD", isin: Optional[str] = None):
         self.symbol = symbol
         self.name = name
         self.type = instrument_type  # stock, etf, fund, crypto
         self.exchange = exchange
         self.currency = currency
+        self.isin = isin
 
     def to_dict(self) -> dict:
         return {
@@ -31,7 +34,16 @@ class SearchResult:
             "type": self.type,
             "exchange": self.exchange,
             "currency": self.currency,
+            **({"isin": self.isin} if self.isin else {}),
         }
+
+def search_uk_funds(query: str) -> List[SearchResult]:
+    words = set(re.findall(r"[a-z0-9]+", query.lower()))
+    return [
+        SearchResult(isin, fund["name"], "fund", "UK fund", "GBP", isin=isin)
+        for isin, fund in UK_FUNDS.items()
+        if query.upper() == isin or (words and words <= set(re.findall(r"[a-z0-9]+", fund["name"].lower())))
+    ]
 
 
 class SearchService:
@@ -109,7 +121,11 @@ class SearchService:
         if cached is not None:
             return cached
 
-        results: List[SearchResult] = []
+        verified_funds = search_uk_funds(query)
+        if verified_funds and query.upper() == verified_funds[0].isin:
+            return [verified_funds[0].to_dict()]
+
+        results = verified_funds.copy()
 
         # 1. Search Yahoo Finance (stocks, ETFs, funds)
         yahoo_results = self._search_yahoo(query)
@@ -135,7 +151,7 @@ class SearchService:
             symbol_exact = 0 if item["symbol"].upper() == query_upper else 1
             symbol_starts = 0 if item["symbol"].upper().startswith(query_upper) else 1
             name_starts = 0 if item["name"].upper().startswith(query_upper) else 1
-            return (symbol_exact, symbol_starts, name_starts, item["name"])
+            return (symbol_exact, item["symbol"] not in UK_FUNDS, symbol_starts, name_starts, item["name"])
 
         deduplicated.sort(key=sort_key)
 
@@ -171,14 +187,16 @@ class SearchService:
                 asset_type = type_map.get(quote_type, "stock")
                 
                 exchange = item.get("exchDisp") or item.get("exchange", "Unknown")
-                currency = item.get("currency", "USD")
+                currency = item.get("currency") or ""
+                isin = str(item.get("isin") or "").upper()
                 
                 results.append(SearchResult(
                     symbol=symbol,
                     name=name,
                     instrument_type=asset_type,
                     exchange=exchange,
-                    currency=currency
+                    currency=currency,
+                    isin=isin if re.fullmatch(r"[A-Z]{2}[A-Z0-9]{9}[0-9]", isin) else None,
                 ))
         except Exception as e:
             logger.warning(f"Yahoo Finance search failed via yfinance: {e}")

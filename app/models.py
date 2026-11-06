@@ -134,6 +134,13 @@ class IncomeData(Base):
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
 
+class FinancePlan(Base):
+    __tablename__ = "finance_plans"
+
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    details = Column(JSON, nullable=False)
+
+
 class MonthlyInvestment(Base):
     __tablename__ = 'monthly_investments'
     

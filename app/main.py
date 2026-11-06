@@ -62,12 +62,13 @@ def health_check():
     return {"status": "healthy"}
 
 # Import and include routers
-from app.routers import net_worth, holdings, goals, cashflow, analytics, crypto
+from app.routers import net_worth, holdings, goals, cashflow, analytics, crypto, finance_plan
 
 app.include_router(net_worth.router)
 app.include_router(holdings.router)
 app.include_router(goals.router)
 app.include_router(cashflow.router)
+app.include_router(finance_plan.router)
 app.include_router(analytics.router)
 app.include_router(crypto.router)
 

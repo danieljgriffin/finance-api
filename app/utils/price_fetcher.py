@@ -7,6 +7,7 @@ import trafilatura
 from datetime import datetime
 import time
 import asyncio
+from app.services.uk_funds import UK_FUNDS
 
 logger = logging.getLogger(__name__)
 
@@ -79,11 +80,10 @@ class PriceFetcher:
                 'hl_url': 'https://www.hl.co.uk/funds/fund-discounts,-prices--and--factsheets/search-results/n/ninety-one-gsf-global-natural-resources-class-i-accumulation',
                 'ft_url': 'https://markets.ft.com/data/funds/tearsheet/performance?s=LU0954591375:GBP'
             },
-            'GB00BMN91T34': {
-                'name': 'UBS S&P 500 Index Class C - Acc',
-                'hl_url': 'https://www.hl.co.uk/funds/fund-discounts,-prices--and--factsheets/search-results/u/ubs-s-and-p-500-index-accumulation',
-                'ft_url': 'https://markets.ft.com/data/funds/tearsheet/summary?s=GB00BMN91T34:GBP'
-            }
+            **{
+                isin: {**fund, 'ft_url': f'https://markets.ft.com/data/funds/tearsheet/summary?s={isin}:GBP'}
+                for isin, fund in UK_FUNDS.items()
+            },
         }
         
         # Fallback prices (manually updated periodically)
